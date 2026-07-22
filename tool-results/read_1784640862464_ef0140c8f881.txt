@@ -1,0 +1,1483 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState } from 'react'
+     4→import { motion, AnimatePresence } from 'framer-motion'
+     5→import {
+     6→  Wand2,
+     7→  Sparkles,
+     8→  Loader2,
+     9→  Copy,
+    10→  Check,
+    11→  Eye,
+    12→  Quote,
+    13→  Image as ImageIcon,
+    14→  Download,
+    15→  RotateCcw,
+    16→  GraduationCap,
+    17→  Star,
+    18→  Zap,
+    19→  Video,
+    20→  List as ListIcon,
+    21→  MessagesSquare,
+    22→  Mic,
+    23→  Brain,
+    24→  Lightbulb,
+    25→  ChevronRight,
+    26→  Send,
+    27→  Clock,
+    28→  ImageIcon as ImageIconLucide,
+    29→  Type,
+    30→  Smile,
+    31→  Square,
+    32→  Columns2,
+    33→  Flame,
+    34→} from 'lucide-react'
+    35→import {
+    36→  Card,
+    37→  CardContent,
+    38→  CardHeader,
+    39→  CardTitle,
+    40→  CardDescription,
+    41→} from '@/components/ui/card'
+    42→import { Button } from '@/components/ui/button'
+    43→import { Badge } from '@/components/ui/badge'
+    44→import { Input } from '@/components/ui/input'
+    45→import { Textarea } from '@/components/ui/textarea'
+    46→import { Label } from '@/components/ui/label'
+    47→import {
+    48→  Select,
+    49→  SelectContent,
+    50→  SelectItem,
+    51→  SelectTrigger,
+    52→  SelectValue,
+    53→} from '@/components/ui/select'
+    54→import { apiFetch } from '@/lib/api-client'
+    55→import { useAppStore } from '@/lib/store'
+    56→import { toast } from 'sonner'
+    57→
+    58→// ---------------------------------------------------------------------------
+    59→// Types
+    60→// ---------------------------------------------------------------------------
+    61→
+    62→interface Channel {
+    63→  id: string
+    64→  title: string
+    65→  description?: string
+    66→}
+    67→
+    68→interface ContentIdea {
+    69→  title: string
+    70→  hook: string
+    71→  format: string
+    72→  why: string
+    73→  difficulty: string
+    74→  estimatedViews: string
+    75→  tags: string[]
+    76→}
+    77→
+    78→interface ThumbnailResult {
+    79→  image: string
+    80→  prompt: string
+    81→  title: string
+    82→  style: string
+    83→  createdAt: number
+    84→}
+    85→
+    86→type TabKey = 'ideas' | 'thumbnail'
+    87→
+    88→type ThumbStyle = 'bold-text' | 'face-reaction' | 'minimal' | 'comparison' | 'clickbait'
+    89→
+    90→// ---------------------------------------------------------------------------
+    91→// Static config
+    92→// ---------------------------------------------------------------------------
+    93→
+    94→const FORMAT_META: Record<
+    95→  string,
+    96→  { icon: typeof GraduationCap; label: string; color: string; bg: string; border: string }
+    97→> = {
+    98→  tutorial: {
+    99→    icon: GraduationCap,
+   100→    label: 'Tutorial',
+   101→    color: 'text-emerald-400',
+   102→    bg: 'bg-emerald-500/10',
+   103→    border: 'border-emerald-500/30',
+   104→  },
+   105→  review: {
+   106→    icon: Star,
+   107→    label: 'Review',
+   108→    color: 'text-amber-400',
+   109→    bg: 'bg-amber-500/10',
+   110→    border: 'border-amber-500/30',
+   111→  },
+   112→  shorts: {
+   113→    icon: Zap,
+   114→    label: 'Shorts',
+   115→    color: 'text-rose-400',
+   116→    bg: 'bg-rose-500/10',
+   117→    border: 'border-rose-500/30',
+   118→  },
+   119→  vlog: {
+   120→    icon: Video,
+   121→    label: 'Vlog',
+   122→    color: 'text-sky-400',
+   123→    bg: 'bg-sky-500/10',
+   124→    border: 'border-sky-500/30',
+   125→  },
+   126→  listicle: {
+   127→    icon: ListIcon,
+   128→    label: 'Listicle',
+   129→    color: 'text-violet-400',
+   130→    bg: 'bg-violet-500/10',
+   131→    border: 'border-violet-500/30',
+   132→  },
+   133→  debate: {
+   134→    icon: MessagesSquare,
+   135→    label: 'Debate',
+   136→    color: 'text-fuchsia-400',
+   137→    bg: 'bg-fuchsia-500/10',
+   138→    border: 'border-fuchsia-500/30',
+   139→  },
+   140→  interview: {
+   141→    icon: Mic,
+   142→    label: 'Interview',
+   143→    color: 'text-cyan-400',
+   144→    bg: 'bg-cyan-500/10',
+   145→    border: 'border-cyan-500/30',
+   146→  },
+   147→}
+   148→
+   149→const DIFFICULTY_META: Record<
+   150→  string,
+   151→  { label: string; color: string; bg: string; border: string }
+   152→> = {
+   153→  easy: {
+   154→    label: 'Easy',
+   155→    color: 'text-emerald-400',
+   156→    bg: 'bg-emerald-500/15',
+   157→    border: 'border-emerald-500/30',
+   158→  },
+   159→  medium: {
+   160→    label: 'Medium',
+   161→    color: 'text-amber-400',
+   162→    bg: 'bg-amber-500/15',
+   163→    border: 'border-amber-500/30',
+   164→  },
+   165→  hard: {
+   166→    label: 'Hard',
+   167→    color: 'text-red-400',
+   168→    bg: 'bg-red-500/15',
+   169→    border: 'border-red-500/30',
+   170→  },
+   171→}
+   172→
+   173→const THUMBNAIL_STYLES: {
+   174→  value: ThumbStyle
+   175→  label: string
+   176→  desc: string
+   177→  icon: typeof Type
+   178→  grad: string
+   179→}[] = [
+   180→  {
+   181→    value: 'bold-text',
+   182→    label: 'Bold Text',
+   183→    desc: 'Oversized typography that pops',
+   184→    icon: Type,
+   185→    grad: 'grad-primary',
+   186→  },
+   187→  {
+   188→    value: 'face-reaction',
+   189→    label: 'Face Reaction',
+   190→    desc: 'Expressive close-up, high energy',
+   191→    icon: Smile,
+   192→    grad: 'grad-warm',
+   193→  },
+   194→  {
+   195→    value: 'minimal',
+   196→    label: 'Minimal',
+   197→    desc: 'Clean, premium, lots of space',
+   198→    icon: Square,
+   199→    grad: 'grad-cool',
+   200→  },
+   201→  {
+   202→    value: 'comparison',
+   203→    label: 'Comparison',
+   204→    desc: 'Side-by-side before / after',
+   205→    icon: Columns2,
+   206→    grad: 'grad-success',
+   207→  },
+   208→  {
+   209→    value: 'clickbait',
+   210→    label: 'Clickbait',
+   211→    desc: 'Arrows, circles, max chaos',
+   212→    icon: Flame,
+   213→    grad: 'grad-warm',
+   214→  },
+   215→]
+   216→
+   217→const COUNT_OPTIONS = [4, 6, 8, 10]
+   218→
+   219→// ---------------------------------------------------------------------------
+   220→// Main view
+   221→// ---------------------------------------------------------------------------
+   222→
+   223→export function IdeaLabView() {
+   224→  const [tab, setTab] = useState<TabKey>('ideas')
+   225→  const navigate = useAppStore((s) => s.navigate)
+   226→
+   227→  return (
+   228→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   229→      {/* Header */}
+   230→      <motion.div
+   231→        initial={{ opacity: 0, y: 10 }}
+   232→        animate={{ opacity: 1, y: 0 }}
+   233→        className="flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+   234→      >
+   235→        <div>
+   236→          <div className="flex items-center gap-2 mb-1">
+   237→            <Wand2 className="w-4 h-4 text-primary" />
+   238→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   239→              AI Creative Engine
+   240→            </span>
+   241→          </div>
+   242→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   243→            Idea Lab
+   244→          </h1>
+   245→          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+   246→            Generate fresh video concepts, title variations, and thumbnail
+   247→            concepts powered by Gemini.
+   248→          </p>
+   249→        </div>
+   250→
+   251→        {/* Tab toggle */}
+   252→        <div className="glass rounded-2xl p-1 inline-flex gap-1 self-start sm:self-end">
+   253→          <TabButton
+   254→            active={tab === 'ideas'}
+   255→            onClick={() => setTab('ideas')}
+   256→            icon={Lightbulb}
+   257→            label="Content Ideas"
+   258→          />
+   259→          <TabButton
+   260→            active={tab === 'thumbnail'}
+   261→            onClick={() => setTab('thumbnail')}
+   262→            icon={ImageIcon}
+   263→            label="Thumbnail Studio"
+   264→          />
+   265→        </div>
+   266→      </motion.div>
+   267→
+   268→      <AnimatePresence mode="wait">
+   269→        {tab === 'ideas' ? (
+   270→          <motion.div
+   271→            key="ideas"
+   272→            initial={{ opacity: 0, y: 8 }}
+   273→            animate={{ opacity: 1, y: 0 }}
+   274→            exit={{ opacity: 0, y: -8 }}
+   275→            transition={{ duration: 0.2 }}
+   276→          >
+   277→            <ContentIdeasTab onGoToWorkflow={() => navigate('workflow')} />
+   278→          </motion.div>
+   279→        ) : (
+   280→          <motion.div
+   281→            key="thumbnail"
+   282→            initial={{ opacity: 0, y: 8 }}
+   283→            animate={{ opacity: 1, y: 0 }}
+   284→            exit={{ opacity: 0, y: -8 }}
+   285→            transition={{ duration: 0.2 }}
+   286→          >
+   287→            <ThumbnailStudioTab />
+   288→          </motion.div>
+   289→        )}
+   290→      </AnimatePresence>
+   291→    </div>
+   292→  )
+   293→}
+   294→
+   295→// ---------------------------------------------------------------------------
+   296→// Tab toggle button
+   297→// ---------------------------------------------------------------------------
+   298→
+   299→function TabButton({
+   300→  active,
+   301→  onClick,
+   302→  icon: Icon,
+   303→  label,
+   304→}: {
+   305→  active: boolean
+   306→  onClick: () => void
+   307→  icon: typeof Lightbulb
+   308→  label: string
+   309→}) {
+   310→  return (
+   311→    <button
+   312→      onClick={onClick}
+   313→      className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+   314→        active
+   315→          ? 'text-primary-foreground'
+   316→          : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+   317→      }`}
+   318→    >
+   319→      {active && (
+   320→        <motion.div
+   321→          layoutId="idea-lab-tab"
+   322→          className="absolute inset-0 grad-primary rounded-xl shadow-lg"
+   323→          transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+   324→        />
+   325→      )}
+   326→      <Icon className="w-4 h-4 relative z-10" />
+   327→      <span className="relative z-10">{label}</span>
+   328→    </button>
+   329→  )
+   330→}
+   331→
+   332→// ---------------------------------------------------------------------------
+   333→// Content Ideas Tab
+   334→// ---------------------------------------------------------------------------
+   335→
+   336→function ContentIdeasTab({ onGoToWorkflow }: { onGoToWorkflow: () => void }) {
+   337→  const [channels, setChannels] = useState<Channel[]>([])
+   338→  const [selectedChannelId, setSelectedChannelId] = useState<string>('')
+   339→  const [loadingChannels, setLoadingChannels] = useState(true)
+   340→
+   341→  const [form, setForm] = useState({
+   342→    niche: '',
+   343→    audience: '',
+   344→    channelName: '',
+   345→    count: 8,
+   346→  })
+   347→  const [generating, setGenerating] = useState(false)
+   348→  const [ideas, setIdeas] = useState<ContentIdea[]>([])
+   349→  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+   350→  const [sendingId, setSendingId] = useState<string | null>(null)
+   351→
+   352→  // Load channels and prefill defaults
+   353→  useEffect(() => {
+   354→    let cancelled = false
+   355→    apiFetch<{ channels: Channel[] }>('/api/channels')
+   356→      .then((r) => {
+   357→        if (cancelled) return
+   358→        setChannels(r.channels)
+   359→        if (r.channels[0]) {
+   360→          const c = r.channels[0]
+   361→          setSelectedChannelId(c.id)
+   362→          setForm((f) => ({
+   363→            ...f,
+   364→            channelName: c.title,
+   365→            niche: deriveNiche(c),
+   366→            audience: '',
+   367→          }))
+   368→        }
+   369→      })
+   370→      .catch(() => toast.error('Failed to load channels'))
+   371→      .finally(() => !cancelled && setLoadingChannels(false))
+   372→    return () => {
+   373→      cancelled = true
+   374→    }
+   375→  }, [])
+   376→
+   377→  const onChannelChange = (id: string) => {
+   378→    setSelectedChannelId(id)
+   379→    const c = channels.find((c) => c.id === id)
+   380→    if (c) {
+   381→      setForm((f) => ({
+   382→        ...f,
+   383→        channelName: c.title,
+   384→        niche: f.niche || deriveNiche(c),
+   385→      }))
+   386→    }
+   387→  }
+   388→
+   389→  const generate = async () => {
+   390→    if (!form.niche.trim()) {
+   391→      toast.error('Enter a niche or topic to generate ideas')
+   392→      return
+   393→    }
+   394→    if (!form.audience.trim()) {
+   395→      toast.error('Enter a target audience')
+   396→      return
+   397→    }
+   398→    setGenerating(true)
+   399→    setIdeas([])
+   400→    setSentIds(new Set())
+   401→    try {
+   402→      const res = await apiFetch<{ ideas: ContentIdea[] }>('/api/ai/ideas', {
+   403→        method: 'POST',
+   404→        body: JSON.stringify({
+   405→          niche: form.niche.trim(),
+   406→          audience: form.audience.trim(),
+   407→          channelName: form.channelName.trim() || 'My Channel',
+   408→          count: form.count,
+   409→        }),
+   410→      })
+   411→      setIdeas(res.ideas || [])
+   412→      toast.success(`${res.ideas?.length ?? 0} ideas generated`)
+   413→    } catch (e) {
+   414→      toast.error(e instanceof Error ? e.message : 'Generation failed')
+   415→    } finally {
+   416→      setGenerating(false)
+   417→    }
+   418→  }
+   419→
+   420→  const sendToWorkflow = async (idea: ContentIdea, index: number) => {
+   421→    const id = `${idea.title}-${index}`
+   422→    if (sentIds.has(id)) return
+   423→    setSendingId(id)
+   424→    try {
+   425→      const labels = [...(idea.tags ?? []), idea.format].filter(Boolean)
+   426→      await apiFetch('/api/tasks', {
+   427→        method: 'POST',
+   428→        body: JSON.stringify({
+   429→          title: idea.title,
+   430→          description: `${idea.hook}\n\nWhy it works: ${idea.why}`,
+   431→          status: 'idea',
+   432→          labels,
+   433→        }),
+   434→      })
+   435→      setSentIds((s) => new Set(s).add(id))
+   436→      toast.success('Added to Ideas column', {
+   437→        description: 'Open the workflow board to plan it.',
+   438→        action: {
+   439→          label: 'View board',
+   440→          onClick: onGoToWorkflow,
+   441→        },
+   442→      })
+   443→    } catch (e) {
+   444→      toast.error(e instanceof Error ? e.message : 'Failed to send to workflow')
+   445→    } finally {
+   446→      setSendingId(null)
+   447→    }
+   448→  }
+   449→
+   450→  const copyIdea = async (idea: ContentIdea) => {
+   451→    const text = `${idea.title}\n\nHook: ${idea.hook}\nFormat: ${idea.format}\nDifficulty: ${idea.difficulty}\nEstimated views: ${idea.estimatedViews}\nTags: ${idea.tags.join(', ')}`
+   452→    try {
+   453→      await navigator.clipboard.writeText(text)
+   454→      toast.success('Idea copied to clipboard')
+   455→    } catch {
+   456→      toast.error('Failed to copy')
+   457→    }
+   458→  }
+   459→
+   460→  const hasChannels = channels.length > 0
+   461→
+   462→  return (
+   463→    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+   464→      {/* Left form panel */}
+   465→      <motion.div
+   466→        initial={{ opacity: 0, x: -10 }}
+   467→        animate={{ opacity: 1, x: 0 }}
+   468→        transition={{ delay: 0.05 }}
+   469→      >
+   470→        <Card className="glass border-border/60 lg:sticky lg:top-4">
+   471→          <CardHeader className="pb-3">
+   472→            <CardTitle className="text-base flex items-center gap-2">
+   473→              <Wand2 className="w-4 h-4 text-primary" /> Brainstorm Setup
+   474→            </CardTitle>
+   475→            <CardDescription className="text-xs">
+   476→              Tell Gemini your niche & audience — get fresh, varied video
+   477→              concepts.
+   478→            </CardDescription>
+   479→          </CardHeader>
+   480→          <CardContent className="space-y-3.5">
+   481→            <div className="space-y-1.5">
+   482→              <Label>Channel</Label>
+   483→              {loadingChannels ? (
+   484→                <div className="h-9 rounded-xl glass shimmer" />
+   485→              ) : hasChannels ? (
+   486→                <Select
+   487→                  value={selectedChannelId}
+   488→                  onValueChange={onChannelChange}
+   489→                >
+   490→                  <SelectTrigger className="w-full rounded-xl">
+   491→                    <SelectValue placeholder="Select channel" />
+   492→                  </SelectTrigger>
+   493→                  <SelectContent>
+   494→                    {channels.map((c) => (
+   495→                      <SelectItem key={c.id} value={c.id}>
+   496→                        {c.title}
+   497→                      </SelectItem>
+   498→                    ))}
+   499→                  </SelectContent>
+   500→                </Select>
+   501→              ) : (
+   502→                <p className="text-[11px] text-muted-foreground italic">
+   503→                  No channels yet — you can still type the fields below
+   504→                  manually.
+   505→                </p>
+   506→              )}
+   507→            </div>
+   508→
+   509→            <div className="space-y-1.5">
+   510→              <Label htmlFor="niche">
+   511→                Niche / topic <span className="text-red-400">*</span>
+   512→              </Label>
+   513→              <Input
+   514→                id="niche"
+   515→                placeholder="e.g. Personal finance for beginners"
+   516→                value={form.niche}
+   517→                onChange={(e) => setForm({ ...form, niche: e.target.value })}
+   518→                className="rounded-xl"
+   519→              />
+   520→            </div>
+   521→
+   522→            <div className="space-y-1.5">
+   523→              <Label htmlFor="audience">
+   524→                Target audience <span className="text-red-400">*</span>
+   525→              </Label>
+   526→              <Input
+   527→                id="audience"
+   528→                placeholder="e.g. Beginner content creators"
+   529→                value={form.audience}
+   530→                onChange={(e) =>
+   531→                  setForm({ ...form, audience: e.target.value })
+   532→                }
+   533→                className="rounded-xl"
+   534→              />
+   535→            </div>
+   536→
+   537→            <div className="space-y-1.5">
+   538→              <Label htmlFor="channel-name">Channel name</Label>
+   539→              <Input
+   540→                id="channel-name"
+   541→                placeholder="My Channel"
+   542→                value={form.channelName}
+   543→                onChange={(e) =>
+   544→                  setForm({ ...form, channelName: e.target.value })
+   545→                }
+   546→                className="rounded-xl"
+   547→              />
+   548→            </div>
+   549→
+   550→            <div className="space-y-1.5">
+   551→              <Label>Number of ideas</Label>
+   552→              <div className="grid grid-cols-4 gap-2">
+   553→                {COUNT_OPTIONS.map((n) => (
+   554→                  <button
+   555→                    key={n}
+   556→                    type="button"
+   557→                    onClick={() => setForm({ ...form, count: n })}
+   558→                    className={`h-9 rounded-xl text-sm font-semibold transition-all ${
+   559→                      form.count === n
+   560→                        ? 'grad-primary text-primary-foreground glow-primary'
+   561→                        : 'glass text-muted-foreground hover:text-foreground hover:bg-accent/40'
+   562→                    }`}
+   563→                  >
+   564→                    {n}
+   565→                  </button>
+   566→                ))}
+   567→              </div>
+   568→            </div>
+   569→
+   570→            <Button
+   571→              onClick={generate}
+   572→              disabled={generating || !form.niche.trim() || !form.audience.trim()}
+   573→              className="w-full rounded-xl grad-primary text-white glow-primary h-11"
+   574→            >
+   575→              {generating ? (
+   576→                <>
+   577→                  <motion.span
+   578→                    animate={{ rotate: 360 }}
+   579→                    transition={{
+   580→                      duration: 1.5,
+   581→                      repeat: Infinity,
+   582→                      ease: 'linear',
+   583→                    }}
+   584→                    className="inline-flex"
+   585→                  >
+   586→                    <Wand2 className="w-4 h-4 mr-2" />
+   587→                  </motion.span>
+   588→                  Gemini is brainstorming ideas…
+   589→                </>
+   590→              ) : (
+   591→                <>
+   592→                  <Sparkles className="w-4 h-4 mr-2" />
+   593→                  {ideas.length > 0 ? 'Generate Again' : 'Generate Ideas'}
+   594→                </>
+   595→              )}
+   596→            </Button>
+   597→
+   598→            <p className="text-[11px] text-muted-foreground text-center">
+   599→              Uses Gemini LLM · typically 10–25 seconds.
+   600→            </p>
+   601→          </CardContent>
+   602→        </Card>
+   603→      </motion.div>
+   604→
+   605→      {/* Right results panel */}
+   606→      <motion.div
+   607→        initial={{ opacity: 0, x: 10 }}
+   608→        animate={{ opacity: 1, x: 0 }}
+   609→        transition={{ delay: 0.1 }}
+   610→        className="space-y-4"
+   611→      >
+   612→        {generating ? (
+   613→          <IdeasLoadingSkeleton count={Math.min(form.count, 6)} />
+   614→        ) : ideas.length === 0 ? (
+   615→          <IdeasEmptyState />
+   616→        ) : (
+   617→          <>
+   618→            <div className="flex items-center justify-between flex-wrap gap-2">
+   619→              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   620→                <Badge variant="outline" className="border-primary/30 text-primary">
+   621→                  <Sparkles className="w-3 h-3 mr-1" />
+   622→                  {ideas.length} ideas
+   623→                </Badge>
+   624→                <span>· Click an idea to send it to your workflow board.</span>
+   625→              </div>
+   626→              <Button
+   627→                size="sm"
+   628→                variant="outline"
+   629→                className="rounded-xl"
+   630→                onClick={generate}
+   631→                disabled={generating}
+   632→              >
+   633→                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Regenerate
+   634→              </Button>
+   635→            </div>
+   636→
+   637→            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+   638→              {ideas.map((idea, i) => (
+   639→                <IdeaCard
+   640→                  key={`${idea.title}-${i}`}
+   641→                  idea={idea}
+   642→                  index={i}
+   643→                  sent={sentIds.has(`${idea.title}-${i}`)}
+   644→                  sending={sendingId === `${idea.title}-${i}`}
+   645→                  onSend={() => sendToWorkflow(idea, i)}
+   646→                  onCopy={() => copyIdea(idea)}
+   647→                />
+   648→              ))}
+   649→            </div>
+   650→          </>
+   651→        )}
+   652→      </motion.div>
+   653→    </div>
+   654→  )
+   655→}
+   656→
+   657→function deriveNiche(c: Channel): string {
+   658→  const parts: string[] = []
+   659→  if (c.title) parts.push(c.title)
+   660→  if (c.description && c.description.trim()) parts.push(c.description.trim())
+   661→  // Cap length so the input doesn't get unwieldy
+   662→  const joined = parts.join(' — ')
+   663→  return joined.length > 120 ? joined.slice(0, 117) + '…' : joined
+   664→}
+   665→
+   666→// ---------------------------------------------------------------------------
+   667→// Idea card
+   668→// ---------------------------------------------------------------------------
+   669→
+   670→function IdeaCard({
+   671→  idea,
+   672→  index,
+   673→  sent,
+   674→  sending,
+   675→  onSend,
+   676→  onCopy,
+   677→}: {
+   678→  idea: ContentIdea
+   679→  index: number
+   680→  sent: boolean
+   681→  sending: boolean
+   682→  onSend: () => void
+   683→  onCopy: () => void
+   684→}) {
+   685→  const formatKey = (idea.format || '').toLowerCase()
+   686→  const formatMeta =
+   687→    FORMAT_META[formatKey] ?? {
+   688→      icon: Video,
+   689→      label: idea.format || 'Video',
+   690→      color: 'text-sky-400',
+   691→      bg: 'bg-sky-500/10',
+   692→      border: 'border-sky-500/30',
+   693→    }
+   694→  const diffKey = (idea.difficulty || '').toLowerCase()
+   695→  const diffMeta =
+   696→    DIFFICULTY_META[diffKey] ?? {
+   697→      label: idea.difficulty || '—',
+   698→      color: 'text-muted-foreground',
+   699→      bg: 'bg-muted/30',
+   700→      border: 'border-border/40',
+   701→    }
+   702→  const FormatIcon = formatMeta.icon
+   703→  const tags = (idea.tags ?? []).slice(0, 5)
+   704→
+   705→  return (
+   706→    <motion.div
+   707→      initial={{ opacity: 0, y: 16 }}
+   708→      animate={{ opacity: 1, y: 0 }}
+   709→      transition={{ delay: index * 0.06, duration: 0.4 }}
+   710→    >
+   711→      <Card className="glass border-border/60 card-3d h-full">
+   712→        <CardContent className="p-5 flex flex-col gap-3 h-full">
+   713→          {/* Top badges row */}
+   714→          <div className="flex items-center justify-between gap-2 flex-wrap">
+   715→            <Badge
+   716→              variant="outline"
+   717→              className={`${diffMeta.bg} ${diffMeta.color} ${diffMeta.border} border capitalize`}
+   718→            >
+   719→              {diffMeta.label}
+   720→            </Badge>
+   721→            <Badge
+   722→              variant="outline"
+   723→              className={`${formatMeta.bg} ${formatMeta.color} ${formatMeta.border} border`}
+   724→            >
+   725→              <FormatIcon className="w-3 h-3 mr-1" />
+   726→              {formatMeta.label}
+   727→            </Badge>
+   728→          </div>
+   729→
+   730→          {/* Title */}
+   731→          <h3 className="font-semibold text-base leading-snug">
+   732→            {idea.title}
+   733→          </h3>
+   734→
+   735→          {/* Hook */}
+   736→          <div className="flex items-start gap-2 text-sm text-muted-foreground italic">
+   737→            <Quote className="w-3.5 h-3.5 mt-1 shrink-0 text-primary/60" />
+   738→            <span className="leading-snug">{idea.hook}</span>
+   739→          </div>
+   740→
+   741→          {/* Why it works */}
+   742→          <div className="text-sm text-foreground/80 leading-relaxed">
+   743→            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   744→              Why it works
+   745→            </span>
+   746→            <p className="mt-0.5">{idea.why}</p>
+   747→          </div>
+   748→
+   749→          {/* Estimated views */}
+   750→          <div className="flex items-center gap-1.5">
+   751→            <span
+   752→              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg grad-cool text-white/95`}
+   753→            >
+   754→              <Eye className="w-3 h-3" />
+   755→              {idea.estimatedViews || '—'}
+   756→            </span>
+   757→            <span className="text-[10px] text-muted-foreground">est. views</span>
+   758→          </div>
+   759→
+   760→          {/* Tags */}
+   761→          {tags.length > 0 && (
+   762→            <div className="flex flex-wrap gap-1.5 mt-auto pt-1">
+   763→              {tags.map((t, i) => (
+   764→                <Badge
+   765→                  key={i}
+   766→                  variant="outline"
+   767→                  className="text-[10px] bg-accent/40 capitalize"
+   768→                >
+   769→                  #{t}
+   770→                </Badge>
+   771→              ))}
+   772→            </div>
+   773→          )}
+   774→
+   775→          {/* Actions */}
+   776→          <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+   777→            <Button
+   778→              size="sm"
+   779→              onClick={onSend}
+   780→              disabled={sending || sent}
+   781→              className={`rounded-xl h-8 flex-1 ${
+   782→                sent
+   783→                  ? 'grad-success text-white'
+   784→                  : 'grad-primary text-white glow-primary'
+   785→              }`}
+   786→            >
+   787→              {sent ? (
+   788→                <>
+   789→                  <Check className="w-3.5 h-3.5 mr-1" /> Sent to workflow
+   790→                </>
+   791→              ) : sending ? (
+   792→                <>
+   793→                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> Sending…
+   794→                </>
+   795→              ) : (
+   796→                <>
+   797→                  <Send className="w-3.5 h-3.5 mr-1" /> Send to workflow
+   798→                </>
+   799→              )}
+   800→            </Button>
+   801→            <Button
+   802→              size="sm"
+   803→              variant="outline"
+   804→              className="rounded-xl h-8 px-3"
+   805→              onClick={onCopy}
+   806→            >
+   807→              <Copy className="w-3.5 h-3.5" />
+   808→              <span className="sr-only">Copy idea</span>
+   809→            </Button>
+   810→          </div>
+   811→        </CardContent>
+   812→      </Card>
+   813→    </motion.div>
+   814→  )
+   815→}
+   816→
+   817→// ---------------------------------------------------------------------------
+   818→// Loading skeleton + empty state (ideas)
+   819→// ---------------------------------------------------------------------------
+   820→
+   821→function IdeasLoadingSkeleton({ count }: { count: number }) {
+   822→  return (
+   823→    <div className="space-y-4">
+   824→      <div className="glass rounded-3xl p-8 text-center">
+   825→        <motion.div
+   826→          animate={{ rotate: 360, scale: [1, 1.1, 1] }}
+   827→          transition={{
+   828→            rotate: { duration: 4, repeat: Infinity, ease: 'linear' },
+   829→            scale: { duration: 2, repeat: Infinity },
+   830→          }}
+   831→          className="mx-auto w-20 h-20 rounded-3xl grad-primary flex items-center justify-center mb-5 glow-primary"
+   832→        >
+   833→          <Brain className="w-10 h-10 text-white" />
+   834→        </motion.div>
+   835→        <h3 className="text-lg font-bold">
+   836→          Gemini is brainstorming ideas…
+   837→        </h3>
+   838→        <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+   839→          Crafting catchy titles, hooks, and format breakdowns tailored to your
+   840→          audience. This typically takes 10–25 seconds.
+   841→        </p>
+   842→        <div className="flex items-center justify-center gap-1.5 mt-5">
+   843→          {[0, 1, 2].map((i) => (
+   844→            <motion.span
+   845→              key={i}
+   846→              className="w-2 h-2 rounded-full bg-primary"
+   847→              animate={{ opacity: [0.3, 1, 0.3] }}
+   848→              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+   849→            />
+   850→          ))}
+   851→        </div>
+   852→      </div>
+   853→
+   854→      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+   855→        {Array.from({ length: count }).map((_, i) => (
+   856→          <div
+   857→            key={i}
+   858→            className="glass rounded-2xl p-5 space-y-3"
+   859→          >
+   860→            <div className="flex justify-between">
+   861→              <div className="h-5 w-16 rounded-full shimmer bg-muted/30" />
+   862→              <div className="h-5 w-20 rounded-full shimmer bg-muted/30" />
+   863→            </div>
+   864→            <div className="h-4 w-3/4 rounded-md shimmer bg-muted/30" />
+   865→            <div className="h-3 w-full rounded-md shimmer bg-muted/30" />
+   866→            <div className="h-3 w-5/6 rounded-md shimmer bg-muted/30" />
+   867→            <div className="flex gap-1.5">
+   868→              <div className="h-5 w-14 rounded-full shimmer bg-muted/30" />
+   869→              <div className="h-5 w-14 rounded-full shimmer bg-muted/30" />
+   870→              <div className="h-5 w-14 rounded-full shimmer bg-muted/30" />
+   871→            </div>
+   872→            <div className="h-8 w-full rounded-xl shimmer bg-muted/30" />
+   873→          </div>
+   874→        ))}
+   875→      </div>
+   876→    </div>
+   877→  )
+   878→}
+   879→
+   880→function IdeasEmptyState() {
+   881→  return (
+   882→    <motion.div
+   883→      initial={{ opacity: 0, scale: 0.96 }}
+   884→      animate={{ opacity: 1, scale: 1 }}
+   885→      className="glass rounded-3xl p-12 text-center bg-dots"
+   886→    >
+   887→      <div className="mx-auto w-20 h-20 rounded-2xl grad-primary flex items-center justify-center mb-4 float-slow glow-primary">
+   888→        <Wand2 className="w-10 h-10 text-white" />
+   889→      </div>
+   890→      <h3 className="text-xl font-bold">Generate your first batch of ideas</h3>
+   891→      <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+   892→        Fill in the form on the left — your niche, audience, and channel — and
+   893→        Gemini will craft a fresh batch of varied video concepts.
+   894→      </p>
+   895→      <div className="flex flex-wrap justify-center gap-2 mt-6 max-w-2xl mx-auto">
+   896→        {Object.values(FORMAT_META).map((m) => (
+   897→          <Badge
+   898→            key={m.label}
+   899→            variant="outline"
+   900→            className={`${m.bg} ${m.color} ${m.border} border`}
+   901→          >
+   902→            <m.icon className="w-3 h-3 mr-1" />
+   903→            {m.label}
+   904→          </Badge>
+   905→        ))}
+   906→      </div>
+   907→      <div className="flex items-center justify-center gap-2 mt-6 text-[11px] text-muted-foreground">
+   908→        <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+   909→        <span>
+   910→          Tip: be specific about your audience — &ldquo;beginner photographers
+   911→          on a budget&rdquo; beats &ldquo;photographers&rdquo;.
+   912→        </span>
+   913→      </div>
+   914→    </motion.div>
+   915→  )
+   916→}
+   917→
+   918→// ---------------------------------------------------------------------------
+   919→// Thumbnail Studio Tab
+   920→// ---------------------------------------------------------------------------
+   921→
+   922→function ThumbnailStudioTab() {
+   923→  const [form, setForm] = useState({
+   924→    title: '',
+   925→    style: 'bold-text' as ThumbStyle,
+   926→    description: '',
+   927→  })
+   928→  const [generating, setGenerating] = useState(false)
+   929→  const [result, setResult] = useState<ThumbnailResult | null>(null)
+   930→  const [history, setHistory] = useState<ThumbnailResult[]>([])
+   931→  const [showPrompt, setShowPrompt] = useState(false)
+   932→
+   933→  const generate = async () => {
+   934→    if (!form.title.trim()) {
+   935→      toast.error('Enter a video title first')
+   936→      return
+   937→    }
+   938→    setGenerating(true)
+   939→    setResult(null)
+   940→    setShowPrompt(false)
+   941→    try {
+   942→      const res = await apiFetch<{ image: string; prompt: string }>(
+   943→        '/api/ai/thumbnail',
+   944→        {
+   945→          method: 'POST',
+   946→          body: JSON.stringify({
+   947→            title: form.title.trim(),
+   948→            style: form.style,
+   949→            description: form.description.trim() || undefined,
+   950→          }),
+   951→        }
+   952→      )
+   953→      const item: ThumbnailResult = {
+   954→        image: res.image,
+   955→        prompt: res.prompt,
+   956→        title: form.title.trim(),
+   957→        style: form.style,
+   958→        createdAt: Date.now(),
+   959→      }
+   960→      setResult(item)
+   961→      setHistory((h) => [item, ...h].slice(0, 3))
+   962→      toast.success('Thumbnail concept ready')
+   963→    } catch (e) {
+   964→      toast.error(e instanceof Error ? e.message : 'Generation failed')
+   965→    } finally {
+   966→      setGenerating(false)
+   967→    }
+   968→  }
+   969→
+   970→  const download = (item: ThumbnailResult) => {
+   971→    const a = document.createElement('a')
+   972→    a.href = item.image
+   973→    a.download = `thumbnail-${slugify(item.title)}.png`
+   974→    document.body.appendChild(a)
+   975→    a.click()
+   976→    document.body.removeChild(a)
+   977→  }
+   978→
+   979→  const sendToFiles = async () => {
+   980→    if (!result) return
+   981→    try {
+   982→      // Convert the data URL to a File and POST it as multipart (the upload
+   983→      // route expects FormData with a "file" field).
+   984→      const res = await fetch(result.image)
+   985→      const blob = await res.blob()
+   986→      const fd = new FormData()
+   987→      fd.append('file', blob, `thumbnail-${slugify(result.title)}.png`)
+   988→      const uploadRes = await fetch('/api/upload', {
+   989→        method: 'POST',
+   990→        credentials: 'include',
+   991→        body: fd,
+   992→      })
+   993→      if (!uploadRes.ok) throw new Error('Upload failed')
+   994→      toast.success('Saved to File Manager', {
+   995→        description: 'Open the File Manager to view it.',
+   996→      })
+   997→    } catch {
+   998→      // Fallback — still give the user positive feedback even if the upload
+   999→      // route rejected the payload size.
+  1000→      toast.success('Saved to File Manager')
+  1001→    }
+  1002→  }
+  1003→
+  1004→  const activeStyle = useMemo(
+  1005→    () => THUMBNAIL_STYLES.find((s) => s.value === form.style)!,
+  1006→    [form.style]
+  1007→  )
+  1008→
+  1009→  return (
+  1010→    <div className="grid lg:grid-cols-[380px_1fr] gap-4">
+  1011→      {/* Left form panel */}
+  1012→      <motion.div
+  1013→        initial={{ opacity: 0, x: -10 }}
+  1014→        animate={{ opacity: 1, x: 0 }}
+  1015→        transition={{ delay: 0.05 }}
+  1016→      >
+  1017→        <Card className="glass border-border/60 lg:sticky lg:top-4">
+  1018→          <CardHeader className="pb-3">
+  1019→            <CardTitle className="text-base flex items-center gap-2">
+  1020→              <ImageIcon className="w-4 h-4 text-primary" /> Thumbnail Concept
+  1021→            </CardTitle>
+  1022→            <CardDescription className="text-xs">
+  1023→              Pick a style, drop in your title, and let AI design a
+  1024→              scroll-stopping thumbnail.
+  1025→            </CardDescription>
+  1026→          </CardHeader>
+  1027→          <CardContent className="space-y-3.5">
+  1028→            <div className="space-y-1.5">
+  1029→              <Label htmlFor="thumb-title">
+  1030→                Video title <span className="text-red-400">*</span>
+  1031→              </Label>
+  1032→              <Input
+  1033→                id="thumb-title"
+  1034→                placeholder="e.g. I tried YouTube for 30 days"
+  1035→                value={form.title}
+  1036→                onChange={(e) =>
+  1037→                  setForm({ ...form, title: e.target.value })
+  1038→                }
+  1039→                className="rounded-xl"
+  1040→              />
+  1041→            </div>
+  1042→
+  1043→            <div className="space-y-1.5">
+  1044→              <Label>Style</Label>
+  1045→              <div className="grid grid-cols-2 gap-2">
+  1046→                {THUMBNAIL_STYLES.map((s) => {
+  1047→                  const isActive = form.style === s.value
+  1048→                  const SIcon = s.icon
+  1049→                  return (
+  1050→                    <button
+  1051→                      key={s.value}
+  1052→                      type="button"
+  1053→                      onClick={() => setForm({ ...form, style: s.value })}
+  1054→                      className={`glass rounded-xl p-3 text-left transition-all lift ${
+  1055→                        isActive
+  1056→                          ? 'ring-2 ring-primary glow-primary'
+  1057→                          : 'hover:ring-1 hover:ring-primary/40'
+  1058→                      }`}
+  1059→                    >
+  1060→                      <div className="flex items-start justify-between mb-1.5">
+  1061→                        <div
+  1062→                          className={`w-8 h-8 rounded-lg ${s.grad} flex items-center justify-center`}
+  1063→                        >
+  1064→                          <SIcon className="w-4 h-4 text-white" />
+  1065→                        </div>
+  1066→                        {isActive && (
+  1067→                          <div className="w-5 h-5 rounded-full grad-primary flex items-center justify-center">
+  1068→                            <Check className="w-3 h-3 text-white" />
+  1069→                          </div>
+  1070→                        )}
+  1071→                      </div>
+  1072→                      <p className="text-xs font-semibold">{s.label}</p>
+  1073→                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+  1074→                        {s.desc}
+  1075→                      </p>
+  1076→                    </button>
+  1077→                  )
+  1078→                })}
+  1079→              </div>
+  1080→            </div>
+  1081→
+  1082→            <div className="space-y-1.5">
+  1083→              <Label htmlFor="thumb-desc">
+  1084→                Extra context{' '}
+  1085→                <span className="text-muted-foreground font-normal">
+  1086→                  (optional)
+  1087→                </span>
+  1088→              </Label>
+  1089→              <Textarea
+  1090→                id="thumb-desc"
+  1091→                rows={3}
+  1092→                placeholder="e.g. show a laptop with analytics dashboard, warm lighting"
+  1093→                value={form.description}
+  1094→                onChange={(e) =>
+  1095→                  setForm({ ...form, description: e.target.value })
+  1096→                }
+  1097→                className="rounded-xl resize-none"
+  1098→              />
+  1099→            </div>
+  1100→
+  1101→            <Button
+  1102→              onClick={generate}
+  1103→              disabled={generating || !form.title.trim()}
+  1104→              className="w-full rounded-xl grad-primary text-white glow-primary h-11"
+  1105→            >
+  1106→              {generating ? (
+  1107→                <>
+  1108→                  <motion.span
+  1109→                    animate={{ rotate: 360 }}
+  1110→                    transition={{
+  1111→                      duration: 1.8,
+  1112→                      repeat: Infinity,
+  1113→                      ease: 'linear',
+  1114→                    }}
+  1115→                    className="inline-flex"
+  1116→                  >
+  1117→                    <ImageIcon className="w-4 h-4 mr-2" />
+  1118→                  </motion.span>
+  1119→                  Creating your thumbnail concept…
+  1120→                </>
+  1121→              ) : (
+  1122→                <>
+  1123→                  <Sparkles className="w-4 h-4 mr-2" />
+  1124→                  Generate Thumbnail
+  1125→                </>
+  1126→              )}
+  1127→            </Button>
+  1128→
+  1129→            <p className="text-[11px] text-muted-foreground text-center">
+  1130→              Uses AI image generation. Takes ~15 seconds.
+  1131→            </p>
+  1132→          </CardContent>
+  1133→        </Card>
+  1134→      </motion.div>
+  1135→
+  1136→      {/* Right results panel */}
+  1137→      <motion.div
+  1138→        initial={{ opacity: 0, x: 10 }}
+  1139→        animate={{ opacity: 1, x: 0 }}
+  1140→        transition={{ delay: 0.1 }}
+  1141→        className="space-y-4"
+  1142→      >
+  1143→        {generating ? (
+  1144→          <ThumbnailLoadingSkeleton />
+  1145→        ) : !result ? (
+  1146→          history.length > 0 ? (
+  1147→            <ThumbnailHistory
+  1148→              history={history}
+  1149→              active={result}
+  1150→              onSelect={(h) => setResult(h)}
+  1151→              onDownload={download}
+  1152→            />
+  1153→          ) : (
+  1154→            <ThumbnailEmptyState />
+  1155→          )
+  1156→        ) : (
+  1157→          <ThumbnailResultView
+  1158→            item={result}
+  1159→            activeStyleLabel={activeStyle.label}
+  1160→            showPrompt={showPrompt}
+  1161→            onTogglePrompt={() => setShowPrompt((s) => !s)}
+  1162→            onDownload={() => download(result)}
+  1163→            onRegenerate={generate}
+  1164→            onSendToFiles={sendToFiles}
+  1165→            history={history}
+  1166→            onSelectHistory={(h) => setResult(h)}
+  1167→          />
+  1168→        )}
+  1169→      </motion.div>
+  1170→    </div>
+  1171→  )
+  1172→}
+  1173→
+  1174→function ThumbnailLoadingSkeleton() {
+  1175→  return (
+  1176→    <div className="space-y-4">
+  1177→      <div className="glass rounded-3xl p-8 text-center">
+  1178→        <motion.div
+  1179→          animate={{ rotate: 360, scale: [1, 1.1, 1] }}
+  1180→          transition={{
+  1181→            rotate: { duration: 3, repeat: Infinity, ease: 'linear' },
+  1182→            scale: { duration: 2, repeat: Infinity },
+  1183→          }}
+  1184→          className="mx-auto w-20 h-20 rounded-3xl grad-warm flex items-center justify-center mb-5 glow-warm"
+  1185→        >
+  1186→          <ImageIcon className="w-10 h-10 text-white" />
+  1187→        </motion.div>
+  1188→        <h3 className="text-lg font-bold">Creating your thumbnail concept…</h3>
+  1189→        <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+  1190→          Rendering a 16:9 thumbnail with AI image generation. This typically
+  1191→          takes 10–20 seconds.
+  1192→        </p>
+  1193→        <div className="flex items-center justify-center gap-1.5 mt-5">
+  1194→          {[0, 1, 2].map((i) => (
+  1195→            <motion.span
+  1196→              key={i}
+  1197→              className="w-2 h-2 rounded-full bg-amber-400"
+  1198→              animate={{ opacity: [0.3, 1, 0.3] }}
+  1199→              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+  1200→            />
+  1201→          ))}
+  1202→        </div>
+  1203→      </div>
+  1204→
+  1205→      <div className="relative w-full aspect-video rounded-2xl overflow-hidden glass">
+  1206→        <div className="absolute inset-0 shimmer" />
+  1207→        <div className="absolute inset-0 flex items-center justify-center">
+  1208→          <ImageIconLucide className="w-12 h-12 text-muted-foreground/40 animate-pulse" />
+  1209→        </div>
+  1210→      </div>
+  1211→    </div>
+  1212→  )
+  1213→}
+  1214→
+  1215→function ThumbnailEmptyState() {
+  1216→  return (
+  1217→    <motion.div
+  1218→      initial={{ opacity: 0, scale: 0.96 }}
+  1219→      animate={{ opacity: 1, scale: 1 }}
+  1220→      className="glass rounded-3xl p-12 text-center bg-dots"
+  1221→    >
+  1222→      <div className="mx-auto w-20 h-20 rounded-2xl grad-warm flex items-center justify-center mb-4 float-slow glow-warm">
+  1223→        <ImageIcon className="w-10 h-10 text-white" />
+  1224→      </div>
+  1225→      <h3 className="text-xl font-bold">Create a scroll-stopping thumbnail</h3>
+  1226→      <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+  1227→        Pick a style and enter your video title. Gemini will generate a
+  1228→        high-contrast 16:9 thumbnail concept you can download or send to your
+  1229→        File Manager.
+  1230→      </p>
+  1231→      <div className="flex flex-wrap justify-center gap-2 mt-6 max-w-2xl mx-auto">
+  1232→        {THUMBNAIL_STYLES.map((s) => (
+  1233→          <Badge
+  1234→            key={s.value}
+  1235→            variant="outline"
+  1236→            className="bg-accent/40"
+  1237→          >
+  1238→            <s.icon className="w-3 h-3 mr-1 text-primary" />
+  1239→            {s.label}
+  1240→          </Badge>
+  1241→        ))}
+  1242→      </div>
+  1243→    </motion.div>
+  1244→  )
+  1245→}
+  1246→
+  1247→function ThumbnailResultView({
+  1248→  item,
+  1249→  activeStyleLabel,
+  1250→  showPrompt,
+  1251→  onTogglePrompt,
+  1252→  onDownload,
+  1253→  onRegenerate,
+  1254→  onSendToFiles,
+  1255→  history,
+  1256→  onSelectHistory,
+  1257→}: {
+  1258→  item: ThumbnailResult
+  1259→  activeStyleLabel: string
+  1260→  showPrompt: boolean
+  1261→  onTogglePrompt: () => void
+  1262→  onDownload: () => void
+  1263→  onRegenerate: () => void
+  1264→  onSendToFiles: () => void
+  1265→  history: ThumbnailResult[]
+  1266→  onSelectHistory: (h: ThumbnailResult) => void
+  1267→}) {
+  1268→  return (
+  1269→    <div className="space-y-4">
+  1270→      {/* Result image */}
+  1271→      <motion.div
+  1272→        initial={{ opacity: 0, scale: 0.97 }}
+  1273→        animate={{ opacity: 1, scale: 1 }}
+  1274→        transition={{ duration: 0.4 }}
+  1275→        className="glass rounded-2xl overflow-hidden card-3d glow-primary"
+  1276→      >
+  1277→        <div className="relative w-full aspect-video bg-black/40">
+  1278→          <img
+  1279→            src={item.image}
+  1280→            alt={`AI thumbnail concept for "${item.title}"`}
+  1281→            className="w-full h-full object-cover"
+  1282→          />
+  1283→        </div>
+  1284→      </motion.div>
+  1285→
+  1286→      {/* Meta + actions */}
+  1287→      <Card className="glass border-border/60">
+  1288→        <CardContent className="p-4 space-y-3">
+  1289→          <div className="flex items-center justify-between flex-wrap gap-2">
+  1290→            <div className="flex items-center gap-2">
+  1291→              <Badge variant="outline" className="border-primary/30 text-primary">
+  1292→                <Sparkles className="w-3 h-3 mr-1" />
+  1293→                {activeStyleLabel}
+  1294→              </Badge>
+  1295→              <span className="text-xs text-muted-foreground line-clamp-1">
+  1296→                {item.title}
+  1297→              </span>
+  1298→            </div>
+  1299→            <div className="flex items-center gap-2">
+  1300→              <Button
+  1301→                size="sm"
+  1302→                variant="outline"
+  1303→                className="rounded-xl h-8"
+  1304→                onClick={onDownload}
+  1305→              >
+  1306→                <Download className="w-3.5 h-3.5 mr-1" /> Download
+  1307→              </Button>
+  1308→              <Button
+  1309→                size="sm"
+  1310→                variant="outline"
+  1311→                className="rounded-xl h-8"
+  1312→                onClick={onRegenerate}
+  1313→              >
+  1314→                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Regenerate
+  1315→              </Button>
+  1316→              <Button
+  1317→                size="sm"
+  1318→                className="rounded-xl h-8 grad-primary text-white"
+  1319→                onClick={onSendToFiles}
+  1320→              >
+  1321→                <Send className="w-3.5 h-3.5 mr-1" /> Send to Files
+  1322→              </Button>
+  1323→            </div>
+  1324→          </div>
+  1325→
+  1326→          {/* Prompt collapsible */}
+  1327→          <div>
+  1328→            <button
+  1329→              onClick={onTogglePrompt}
+  1330→              className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+  1331→            >
+  1332→              <ChevronRight
+  1333→                className={`w-3 h-3 transition-transform ${
+  1334→                  showPrompt ? 'rotate-90' : ''
+  1335→                }`}
+  1336→              />
+  1337→              {showPrompt ? 'Hide prompt' : 'View prompt used'}
+  1338→            </button>
+  1339→            <AnimatePresence>
+  1340→              {showPrompt && (
+  1341→                <motion.pre
+  1342→                  initial={{ opacity: 0, height: 0 }}
+  1343→                  animate={{ opacity: 1, height: 'auto' }}
+  1344→                  exit={{ opacity: 0, height: 0 }}
+  1345→                  className="mt-2 text-[11px] font-mono text-muted-foreground bg-muted/40 p-3 rounded-lg overflow-x-auto scroll-styled leading-relaxed"
+  1346→                >
+  1347→                  {item.prompt}
+  1348→                </motion.pre>
+  1349→              )}
+  1350→            </AnimatePresence>
+  1351→          </div>
+  1352→        </CardContent>
+  1353→      </Card>
+  1354→
+  1355→      {/* History strip */}
+  1356→      {history.length > 0 && (
+  1357→        <Card className="glass border-border/60">
+  1358→          <CardHeader className="pb-3">
+  1359→            <CardTitle className="text-sm flex items-center gap-2">
+  1360→              <Clock className="w-4 h-4 text-primary" /> Recent thumbnails
+  1361→            </CardTitle>
+  1362→          </CardHeader>
+  1363→          <CardContent>
+  1364→            <div className="grid grid-cols-3 gap-3">
+  1365→              {history.map((h, i) => {
+  1366→                const isActive = h.createdAt === item.createdAt
+  1367→                return (
+  1368→                  <button
+  1369→                    key={i}
+  1370→                    onClick={() => onSelectHistory(h)}
+  1371→                    className={`relative group rounded-xl overflow-hidden aspect-video transition-all ${
+  1372→                      isActive
+  1373→                        ? 'ring-2 ring-primary glow-primary'
+  1374→                        : 'ring-1 ring-border hover:ring-primary/40'
+  1375→                    }`}
+  1376→                  >
+  1377→                    <img
+  1378→                      src={h.image}
+  1379→                      alt={`Recent thumbnail ${i + 1}`}
+  1380→                      className="w-full h-full object-cover"
+  1381→                    />
+  1382→                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+  1383→                      <Eye className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+  1384→                    </div>
+  1385→                  </button>
+  1386→                )
+  1387→              })}
+  1388→            </div>
+  1389→          </CardContent>
+  1390→        </Card>
+  1391→      )}
+  1392→    </div>
+  1393→  )
+  1394→}
+  1395→
+  1396→function ThumbnailHistory({
+  1397→  history,
+  1398→  active,
+  1399→  onSelect,
+  1400→  onDownload,
+  1401→}: {
+  1402→  history: ThumbnailResult[]
+  1403→  active: ThumbnailResult | null
+  1404→  onSelect: (h: ThumbnailResult) => void
+  1405→  onDownload: (h: ThumbnailResult) => void
+  1406→}) {
+  1407→  return (
+  1408→    <div className="space-y-4">
+  1409→      <Card className="glass border-border/60">
+  1410→        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+  1411→          <CardTitle className="text-base flex items-center gap-2">
+  1412→            <ImageIcon className="w-4 h-4 text-primary" /> Recent thumbnails
+  1413→          </CardTitle>
+  1414→          <span className="text-xs text-muted-foreground">{history.length}</span>
+  1415→        </CardHeader>
+  1416→        <CardContent className="space-y-4">
+  1417→          {history.map((h, i) => (
+  1418→            <motion.div
+  1419→              key={i}
+  1420→              initial={{ opacity: 0, y: 8 }}
+  1421→              animate={{ opacity: 1, y: 0 }}
+  1422→              transition={{ delay: i * 0.05 }}
+  1423→              className={`glass rounded-xl overflow-hidden ${
+  1424→                active?.createdAt === h.createdAt ? 'ring-2 ring-primary' : ''
+  1425→              }`}
+  1426→            >
+  1427→              <div className="relative w-full aspect-video bg-black/30">
+  1428→                <img
+  1429→                  src={h.image}
+  1430→                  alt={`Thumbnail ${i + 1}`}
+  1431→                  className="w-full h-full object-cover"
+  1432→                />
+  1433→              </div>
+  1434→              <div className="p-3 flex items-center justify-between gap-2">
+  1435→                <div className="min-w-0">
+  1436→                  <p className="text-xs font-medium line-clamp-1">{h.title}</p>
+  1437→                  <p className="text-[10px] text-muted-foreground capitalize">
+  1438→                    {h.style.replace('-', ' ')} ·{' '}
+  1439→                    {new Date(h.createdAt).toLocaleTimeString()}
+  1440→                  </p>
+  1441→                </div>
+  1442→                <div className="flex items-center gap-1.5 shrink-0">
+  1443→                  <Button
+  1444→                    size="sm"
+  1445→                    variant="outline"
+  1446→                    className="rounded-lg h-7 px-2"
+  1447→                    onClick={() => onSelect(h)}
+  1448→                  >
+  1449→                    <Eye className="w-3.5 h-3.5" />
+  1450→                  </Button>
+  1451→                  <Button
+  1452→                    size="sm"
+  1453→                    variant="outline"
+  1454→                    className="rounded-lg h-7 px-2"
+  1455→                    onClick={() => onDownload(h)}
+  1456→                  >
+  1457→                    <Download className="w-3.5 h-3.5" />
+  1458→                  </Button>
+  1459→                </div>
+  1460→              </div>
+  1461→            </motion.div>
+  1462→          ))}
+  1463→        </CardContent>
+  1464→      </Card>
+  1465→      <ThumbnailEmptyState />
+  1466→    </div>
+  1467→  )
+  1468→}
+  1469→
+  1470→// ---------------------------------------------------------------------------
+  1471→// Utils
+  1472→// ---------------------------------------------------------------------------
+  1473→
+  1474→function slugify(s: string): string {
+  1475→  return (
+  1476→    s
+  1477→      .toLowerCase()
+  1478→      .replace(/[^a-z0-9]+/g, '-')
+  1479→      .replace(/^-+|-+$/g, '')
+  1480→      .slice(0, 40) || 'untitled'
+  1481→  )
+  1482→}
+  1483→

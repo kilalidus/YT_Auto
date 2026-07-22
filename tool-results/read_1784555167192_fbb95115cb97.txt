@@ -1,0 +1,1078 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import { useTheme } from 'next-themes'
+     6→import {
+     7→  User as UserIcon,
+     8→  Palette,
+     9→  Bot,
+    10→  BellRing,
+    11→  Link2,
+    12→  Shield,
+    13→  Sun,
+    14→  Moon,
+    15→  Monitor,
+    16→  Check,
+    17→  Eye,
+    18→  EyeOff,
+    19→  Loader2,
+    20→  Sparkles,
+    21→  Youtube,
+    22→  Mail,
+    23→  Lock,
+    24→  LogOut,
+    25→  Smartphone,
+    26→  Clock,
+    27→  KeyRound,
+    28→  Info,
+    29→  Upload,
+    30→  FileBarChart,
+    31→  Flame,
+    32→  Send,
+    33→  Camera,
+    34→  CircleDot,
+    35→  Settings2,
+    36→  Calendar,
+    37→  Bell,
+    38→} from 'lucide-react'
+    39→import {
+    40→  Card,
+    41→  CardContent,
+    42→  CardHeader,
+    43→  CardTitle,
+    44→  CardDescription,
+    45→} from '@/components/ui/card'
+    46→import { Button } from '@/components/ui/button'
+    47→import { Input } from '@/components/ui/input'
+    48→import { Label } from '@/components/ui/label'
+    49→import { Badge } from '@/components/ui/badge'
+    50→import { Switch } from '@/components/ui/switch'
+    51→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    52→import { Separator } from '@/components/ui/separator'
+    53→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    54→import {
+    55→  Select,
+    56→  SelectContent,
+    57→  SelectItem,
+    58→  SelectTrigger,
+    59→  SelectValue,
+    60→} from '@/components/ui/select'
+    61→import { toast } from 'sonner'
+    62→import { apiFetch } from '@/lib/api-client'
+    63→
+    64→interface UserSettings {
+    65→  theme?: string
+    66→  language?: string
+    67→  aiProvider?: string
+    68→  geminiApiKey?: string
+    69→  emailNotifications?: boolean
+    70→  pushNotifications?: boolean
+    71→  uploadReminders?: boolean
+    72→  weeklyReports?: boolean
+    73→  monthlyReports?: boolean
+    74→  trendingAlerts?: boolean
+    75→}
+    76→
+    77→interface User {
+    78→  id: string
+    79→  email: string
+    80→  name: string
+    81→  role: string
+    82→  image?: string | null
+    83→}
+    84→
+    85→interface Channel {
+    86→  id: string
+    87→  title: string
+    88→  subscriberCount?: number
+    89→  videoCount?: number
+    90→}
+    91→
+    92→const LANGUAGES = [
+    93→  { value: 'en', label: 'English' },
+    94→  { value: 'es', label: 'Spanish' },
+    95→  { value: 'fr', label: 'French' },
+    96→  { value: 'de', label: 'German' },
+    97→  { value: 'ja', label: 'Japanese' },
+    98→  { value: 'zh', label: 'Chinese' },
+    99→  { value: 'pt', label: 'Portuguese' },
+   100→  { value: 'sw', label: 'Swahili' },
+   101→]
+   102→
+   103→function initials(name: string) {
+   104→  return name
+   105→    .split(' ')
+   106→    .map((p) => p[0])
+   107→    .filter(Boolean)
+   108→    .slice(0, 2)
+   109→    .join('')
+   110→    .toUpperCase() || 'U'
+   111→}
+   112→
+   113→function GlassCard({
+   114→  children,
+   115→  delay = 0,
+   116→  className = '',
+   117→}: {
+   118→  children: React.ReactNode
+   119→  delay?: number
+   120→  className?: string
+   121→}) {
+   122→  return (
+   123→    <motion.div
+   124→      initial={{ opacity: 0, y: 10 }}
+   125→      animate={{ opacity: 1, y: 0 }}
+   126→      transition={{ delay }}
+   127→      className={`glass rounded-2xl ${className}`}
+   128→    >
+   129→      {children}
+   130→    </motion.div>
+   131→  )
+   132→}
+   133→
+   134→function patchSettings(body: Partial<UserSettings>) {
+   135→  return apiFetch<{ settings: UserSettings }>('/api/settings', {
+   136→    method: 'PATCH',
+   137→    body: JSON.stringify(body),
+   138→  })
+   139→}
+   140→
+   141→export function SettingsView() {
+   142→  const { theme, setTheme } = useTheme()
+   143→  const [user, setUser] = useState<User | null>(null)
+   144→  const [settings, setSettings] = useState<UserSettings | null>(null)
+   145→  const [channels, setChannels] = useState<Channel[]>([])
+   146→  const [loading, setLoading] = useState(true)
+   147→  const [tab, setTab] = useState('profile')
+   148→
+   149→  // Profile tab state
+   150→  const [profileName, setProfileName] = useState('')
+   151→
+   152→  // AI Provider tab state
+   153→  const [aiProvider, setAiProvider] = useState<'gemini' | 'openrouter'>('gemini')
+   154→  const [geminiKey, setGeminiKey] = useState('')
+   155→  const [showKey, setShowKey] = useState(false)
+   156→  const [testing, setTesting] = useState(false)
+   157→  const [savingAi, setSavingAi] = useState(false)
+   158→
+   159→  // Security tab state
+   160→  const [pw, setPw] = useState({ current: '', next: '', confirm: '' })
+   161→
+   162→  useEffect(() => {
+   163→    Promise.all([
+   164→      apiFetch<{ user: User | null }>('/api/auth/me'),
+   165→      apiFetch<{ settings: UserSettings }>('/api/settings'),
+   166→      apiFetch<{ channels: Channel[] }>('/api/channels'),
+   167→    ])
+   168→      .then(([u, s, c]) => {
+   169→        setUser(u.user)
+   170→        setSettings(s.settings)
+   171→        setChannels(c.channels ?? [])
+   172→        setProfileName(u.user?.name ?? '')
+   173→        setAiProvider((s.settings.aiProvider as 'gemini' | 'openrouter') || 'gemini')
+   174→        setGeminiKey(s.settings.geminiApiKey ?? '')
+   175→      })
+   176→      .catch(() => toast.error('Failed to load settings'))
+   177→      .finally(() => setLoading(false))
+   178→  }, [])
+   179→
+   180→  const updateSetting = useCallback(
+   181→    async (patch: Partial<UserSettings>) => {
+   182→      try {
+   183→        const res = await patchSettings(patch)
+   184→        setSettings(res.settings)
+   185→      } catch {
+   186→        toast.error('Failed to update setting')
+   187→        throw new Error('update failed')
+   188→      }
+   189→    },
+   190→    []
+   191→  )
+   192→
+   193→  const handleAppearanceSave = useCallback(
+   194→    async (newTheme: string, newLang: string) => {
+   195→      try {
+   196→        const res = await patchSettings({ theme: newTheme, language: newLang })
+   197→        setSettings(res.settings)
+   198→        toast.success('Appearance saved')
+   199→      } catch {
+   200→        toast.error('Failed to save appearance')
+   201→      }
+   202→    },
+   203→    []
+   204→  )
+   205→
+   206→  const handleAiSave = useCallback(async () => {
+   207→    setSavingAi(true)
+   208→    try {
+   209→      const res = await patchSettings({
+   210→        aiProvider,
+   211→        geminiApiKey: geminiKey,
+   212→      })
+   213→      setSettings(res.settings)
+   214→      toast.success('AI settings saved')
+   215→    } catch {
+   216→      toast.error('Failed to save AI settings')
+   217→    } finally {
+   218→      setSavingAi(false)
+   219→    }
+   220→  }, [aiProvider, geminiKey])
+   221→
+   222→  const handleTestConnection = useCallback(() => {
+   223→    setTesting(true)
+   224→    setTimeout(() => {
+   225→      setTesting(false)
+   226→      toast.success(
+   227→        aiProvider === 'gemini'
+   228→          ? 'Connected to Gemini ✓'
+   229→          : 'Connected to OpenRouter ✓',
+   230→        { description: 'Your API key is valid.' }
+   231→      )
+   232→    }, 1000)
+   233→  }, [aiProvider])
+   234→
+   235→  const handleProfileSave = useCallback(() => {
+   236→    toast.success('Profile updated', {
+   237→      description: 'Changes saved locally for this session.',
+   238→    })
+   239→  }, [])
+   240→
+   241→  const handlePasswordSave = useCallback(() => {
+   242→    if (!pw.current || !pw.next || !pw.confirm) {
+   243→      toast.error('Please fill in all password fields')
+   244→      return
+   245→    }
+   246→    if (pw.next !== pw.confirm) {
+   247→      toast.error('New passwords do not match')
+   248→      return
+   249→    }
+   250→    if (pw.next.length < 8) {
+   251→      toast.error('Password must be at least 8 characters')
+   252→      return
+   253→    }
+   254→    toast.success('Password changed successfully')
+   255→    setPw({ current: '', next: '', confirm: '' })
+   256→  }, [pw])
+   257→
+   258→  if (loading || !settings) {
+   259→    return (
+   260→      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   261→        <div className="h-10 w-40 rounded-xl glass shimmer" />
+   262→        <div className="h-12 rounded-xl glass shimmer" />
+   263→        <div className="h-96 rounded-2xl glass shimmer" />
+   264→      </div>
+   265→    )
+   266→  }
+   267→
+   268→  const themeOptions = [
+   269→    { value: 'light', label: 'Light', icon: Sun, gradient: 'from-amber-100 to-rose-100' },
+   270→    { value: 'dark', label: 'Dark', icon: Moon, gradient: 'from-slate-800 to-violet-900' },
+   271→    { value: 'system', label: 'System', icon: Monitor, gradient: 'from-slate-400 to-violet-500' },
+   272→  ]
+   273→
+   274→  const accentPreview = (
+   275→    <div className="grid grid-cols-2 gap-2 mt-3">
+   276→      <div className="grad-primary h-10 rounded-lg" />
+   277→      <div className="grad-cool h-10 rounded-lg" />
+   278→      <div className="grad-warm h-10 rounded-lg" />
+   279→      <div className="grad-success h-10 rounded-lg" />
+   280→    </div>
+   281→  )
+   282→
+   283→  return (
+   284→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   285→      {/* Header */}
+   286→      <motion.div
+   287→        initial={{ opacity: 0, y: 10 }}
+   288→        animate={{ opacity: 1, y: 0 }}
+   289→        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+   290→      >
+   291→        <div>
+   292→          <div className="flex items-center gap-2 mb-1">
+   293→            <Settings2 className="w-4 h-4 text-primary" />
+   294→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   295→              Workspace
+   296→            </span>
+   297→          </div>
+   298→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Settings</h1>
+   299→          <p className="text-sm text-muted-foreground mt-1">
+   300→            Manage your profile, appearance, AI provider, and integrations.
+   301→          </p>
+   302→        </div>
+   303→      </motion.div>
+   304→
+   305→      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+   306→        <GlassCard className="p-1.5">
+   307→          <TabsList className="bg-transparent h-auto flex flex-wrap gap-1 p-0">
+   308→            <TabsTrigger value="profile" className="rounded-xl px-3 py-1.5">
+   309→              <UserIcon className="w-4 h-4" /> Profile
+   310→            </TabsTrigger>
+   311→            <TabsTrigger value="appearance" className="rounded-xl px-3 py-1.5">
+   312→              <Palette className="w-4 h-4" /> Appearance
+   313→            </TabsTrigger>
+   314→            <TabsTrigger value="ai" className="rounded-xl px-3 py-1.5">
+   315→              <Bot className="w-4 h-4" /> AI Provider
+   316→            </TabsTrigger>
+   317→            <TabsTrigger value="notifications" className="rounded-xl px-3 py-1.5">
+   318→              <BellRing className="w-4 h-4" /> Notifications
+   319→            </TabsTrigger>
+   320→            <TabsTrigger value="accounts" className="rounded-xl px-3 py-1.5">
+   321→              <Link2 className="w-4 h-4" /> Accounts
+   322→            </TabsTrigger>
+   323→            <TabsTrigger value="security" className="rounded-xl px-3 py-1.5">
+   324→              <Shield className="w-4 h-4" /> Security
+   325→            </TabsTrigger>
+   326→          </TabsList>
+   327→        </GlassCard>
+   328→
+   329→        {/* PROFILE */}
+   330→        <TabsContent value="profile" className="space-y-4">
+   331→          <GlassCard delay={0.05}>
+   332→            <CardHeader className="pb-3">
+   333→              <CardTitle className="flex items-center gap-2 text-base">
+   334→                <UserIcon className="w-4 h-4 text-primary" /> Profile
+   335→              </CardTitle>
+   336→              <CardDescription className="text-xs">
+   337→                Your public identity on this workspace.
+   338→              </CardDescription>
+   339→            </CardHeader>
+   340→            <CardContent className="space-y-5">
+   341→              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+   342→                <div className="relative">
+   343→                  <Avatar className="w-20 h-20 rounded-2xl grad-primary">
+   344→                    <AvatarFallback className="rounded-2xl text-white text-xl font-bold grad-primary">
+   345→                      {initials(profileName || user?.name || 'U')}
+   346→                    </AvatarFallback>
+   347→                  </Avatar>
+   348→                  <button
+   349→                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full glass-strong flex items-center justify-center hover:scale-110 transition-transform"
+   350→                    onClick={() => toast.info('Avatar upload is cosmetic in this demo')}
+   351→                    title="Change avatar"
+   352→                  >
+   353→                    <Camera className="w-3.5 h-3.5" />
+   354→                  </button>
+   355→                </div>
+   356→                <div className="flex-1 space-y-2">
+   357→                  <Button
+   358→                    variant="outline"
+   359→                    size="sm"
+   360→                    className="rounded-xl"
+   361→                    onClick={() => toast.info('Avatar upload is cosmetic in this demo')}
+   362→                  >
+   363→                    <Upload className="w-4 h-4 mr-2" /> Change avatar
+   364→                  </Button>
+   365→                  <p className="text-xs text-muted-foreground">
+   366→                    PNG or JPG, max 2MB. Avatar changes are cosmetic in this demo.
+   367→                  </p>
+   368→                </div>
+   369→              </div>
+   370→
+   371→              <Separator />
+   372→
+   373→              <div className="grid sm:grid-cols-2 gap-4">
+   374→                <div className="space-y-1.5">
+   375→                  <Label htmlFor="name" className="text-sm">Display name</Label>
+   376→                  <Input
+   377→                    id="name"
+   378→                    value={profileName}
+   379→                    onChange={(e) => setProfileName(e.target.value)}
+   380→                    className="rounded-xl bg-background/40"
+   381→                    placeholder="Your name"
+   382→                  />
+   383→                </div>
+   384→                <div className="space-y-1.5">
+   385→                  <Label htmlFor="email" className="text-sm">Email</Label>
+   386→                  <Input
+   387→                    id="email"
+   388→                    value={user?.email ?? ''}
+   389→                    readOnly
+   390→                    className="rounded-xl bg-muted/30 text-muted-foreground cursor-not-allowed"
+   391→                  />
+   392→                </div>
+   393→                <div className="space-y-1.5 sm:col-span-2">
+   394→                  <Label className="text-sm">Role</Label>
+   395→                  <div className="flex items-center gap-2">
+   396→                    <Badge
+   397→                      className="grad-primary text-white border-0 capitalize"
+   398→                      variant="default"
+   399→                    >
+   400→                      <Shield className="w-3 h-3 mr-1" />
+   401→                      {user?.role ?? 'creator'}
+   402→                    </Badge>
+   403→                    <span className="text-xs text-muted-foreground">
+   404→                      Role determines what features you can access.
+   405→                    </span>
+   406→                  </div>
+   407→                </div>
+   408→              </div>
+   409→
+   410→              <div className="flex justify-end">
+   411→                <Button
+   412→                  onClick={handleProfileSave}
+   413→                  className="rounded-xl grad-primary text-white"
+   414→                >
+   415→                  <Check className="w-4 h-4 mr-2" /> Save profile
+   416→                </Button>
+   417→              </div>
+   418→            </CardContent>
+   419→          </GlassCard>
+   420→        </TabsContent>
+   421→
+   422→        {/* APPEARANCE */}
+   423→        <TabsContent value="appearance" className="space-y-4">
+   424→          <GlassCard delay={0.05}>
+   425→            <CardHeader className="pb-3">
+   426→              <CardTitle className="flex items-center gap-2 text-base">
+   427→                <Palette className="w-4 h-4 text-primary" /> Theme
+   428→              </CardTitle>
+   429→              <CardDescription className="text-xs">
+   430→                Pick how the studio looks. Changes apply instantly.
+   431→              </CardDescription>
+   432→            </CardHeader>
+   433→            <CardContent>
+   434→              <div className="grid grid-cols-3 gap-3">
+   435→                {themeOptions.map((opt) => {
+   436→                  const Icon = opt.icon
+   437→                  const active = theme === opt.value
+   438→                  return (
+   439→                    <button
+   440→                      key={opt.value}
+   441→                      onClick={() => {
+   442→                        setTheme(opt.value)
+   443→                        const newLang = settings.language ?? 'en'
+   444→                        void handleAppearanceSave(opt.value, newLang)
+   445→                      }}
+   446→                      className={`relative rounded-2xl overflow-hidden border-2 transition-all p-0 text-left ${
+   447→                        active
+   448→                          ? 'border-primary glow-primary'
+   449→                          : 'border-border hover:border-primary/40'
+   450→                      }`}
+   451→                    >
+   452→                      <div
+   453→                        className={`h-20 bg-gradient-to-br ${opt.gradient} relative`}
+   454→                      >
+   455→                        <div className="absolute inset-0 bg-dots opacity-30" />
+   456→                        <Icon className="absolute bottom-2 right-2 w-5 h-5 text-white/80" />
+   457→                        {active && (
+   458→                          <div className="absolute top-2 left-2 w-6 h-6 rounded-full grad-primary flex items-center justify-center">
+   459→                            <Check className="w-3.5 h-3.5 text-white" />
+   460→                          </div>
+   461→                        )}
+   462→                      </div>
+   463→                      <div className="p-2.5 bg-card">
+   464→                        <div className="text-sm font-semibold">{opt.label}</div>
+   465→                        <div className="text-[11px] text-muted-foreground">
+   466→                          {opt.value === 'system' ? 'Match OS' : `${opt.value} mode`}
+   467→                        </div>
+   468→                      </div>
+   469→                    </button>
+   470→                  )
+   471→                })}
+   472→              </div>
+   473→            </CardContent>
+   474→          </GlassCard>
+   475→
+   476→          <GlassCard delay={0.1}>
+   477→            <CardHeader className="pb-3">
+   478→              <CardTitle className="flex items-center gap-2 text-base">
+   479→                <Sparkles className="w-4 h-4 text-primary" /> Language
+   480→              </CardTitle>
+   481→              <CardDescription className="text-xs">
+   482→                Interface language (cosmetic in this demo).
+   483→              </CardDescription>
+   484→            </CardHeader>
+   485→            <CardContent className="space-y-3">
+   486→              <Select
+   487→                value={settings.language ?? 'en'}
+   488→                onValueChange={(v) => {
+   489→                  const newTheme = theme ?? 'dark'
+   490→                  void handleAppearanceSave(newTheme, v)
+   491→                }}
+   492→              >
+   493→                <SelectTrigger className="w-full sm:w-[260px] rounded-xl bg-background/40">
+   494→                  <SelectValue placeholder="Select language" />
+   495→                </SelectTrigger>
+   496→                <SelectContent>
+   497→                  {LANGUAGES.map((l) => (
+   498→                    <SelectItem key={l.value} value={l.value}>
+   499→                      {l.label}
+   500→                    </SelectItem>
+   501→                  ))}
+   502→                </SelectContent>
+   503→              </Select>
+   504→            </CardContent>
+   505→          </GlassCard>
+   506→
+   507→          <GlassCard delay={0.15}>
+   508→            <CardHeader className="pb-3">
+   509→              <CardTitle className="flex items-center gap-2 text-base">
+   510→                <Palette className="w-4 h-4 text-primary" /> Accent
+   511→              </CardTitle>
+   512→              <CardDescription className="text-xs">
+   513→                The brand gradients used throughout the studio.
+   514→              </CardDescription>
+   515→            </CardHeader>
+   516→            <CardContent>
+   517→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+   518→                <div className="grad-primary h-12 rounded-lg flex items-end p-2">
+   519→                  <span className="text-[10px] text-white/90 font-medium">Primary</span>
+   520→                </div>
+   521→                <div className="grad-cool h-12 rounded-lg flex items-end p-2">
+   522→                  <span className="text-[10px] text-white/90 font-medium">Cool</span>
+   523→                </div>
+   524→                <div className="grad-warm h-12 rounded-lg flex items-end p-2">
+   525→                  <span className="text-[10px] text-white/90 font-medium">Warm</span>
+   526→                </div>
+   527→                <div className="grad-success h-12 rounded-lg flex items-end p-2">
+   528→                  <span className="text-[10px] text-white/90 font-medium">Success</span>
+   529→                </div>
+   530→              </div>
+   531→            </CardContent>
+   532→          </GlassCard>
+   533→        </TabsContent>
+   534→
+   535→        {/* AI PROVIDER */}
+   536→        <TabsContent value="ai" className="space-y-4">
+   537→          <GlassCard delay={0.05}>
+   538→            <CardHeader className="pb-3">
+   539→              <CardTitle className="flex items-center gap-2 text-base">
+   540→                <Bot className="w-4 h-4 text-primary" /> AI Provider
+   541→              </CardTitle>
+   542→              <CardDescription className="text-xs">
+   543→                Choose the LLM backend that powers analysis, scripts, and chat.
+   544→              </CardDescription>
+   545→            </CardHeader>
+   546→            <CardContent className="space-y-4">
+   547→              <div className="grid sm:grid-cols-2 gap-3">
+   548→                {[
+   549→                  {
+   550→                    value: 'gemini',
+   551→                    name: 'Google Gemini',
+   552→                    desc: 'Free tier · Fast · Multimodal',
+   553→                    badge: 'Recommended',
+   554→                  },
+   555→                  {
+   556→                    value: 'openrouter',
+   557→                    name: 'OpenRouter',
+   558→                    desc: 'Multi-model · Pay-as-you-go',
+   559→                    badge: 'Pro',
+   560→                  },
+   561→                ].map((p) => {
+   562→                  const active = aiProvider === p.value
+   563→                  return (
+   564→                    <button
+   565→                      key={p.value}
+   566→                      onClick={() => setAiProvider(p.value as 'gemini' | 'openrouter')}
+   567→                      className={`relative text-left rounded-2xl border-2 p-4 transition-all ${
+   568→                        active
+   569→                          ? 'border-primary glow-primary bg-primary/5'
+   570→                          : 'border-border hover:border-primary/40'
+   571→                      }`}
+   572→                    >
+   573→                      <div className="flex items-start justify-between mb-1">
+   574→                        <div className="flex items-center gap-2">
+   575→                          <div
+   576→                            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+   577→                              active ? 'grad-primary' : 'glass'
+   578→                            }`}
+   579→                          >
+   580→                            <Bot
+   581→                              className={`w-4 h-4 ${active ? 'text-white' : 'text-muted-foreground'}`}
+   582→                            />
+   583→                          </div>
+   584→                          <span className="font-semibold text-sm">{p.name}</span>
+   585→                        </div>
+   586→                        {active && (
+   587→                          <div className="w-5 h-5 rounded-full grad-primary flex items-center justify-center">
+   588→                            <Check className="w-3 h-3 text-white" />
+   589→                          </div>
+   590→                        )}
+   591→                      </div>
+   592→                      <p className="text-xs text-muted-foreground mt-1">{p.desc}</p>
+   593→                      <Badge
+   594→                        variant="outline"
+   595→                        className="mt-2 text-[10px] font-normal"
+   596→                      >
+   597→                        {p.badge}
+   598→                      </Badge>
+   599→                    </button>
+   600→                  )
+   601→                })}
+   602→              </div>
+   603→
+   604→              <Separator />
+   605→
+   606→              <div className="space-y-1.5">
+   607→                <Label htmlFor="apikey" className="text-sm flex items-center gap-1.5">
+   608→                  <KeyRound className="w-3.5 h-3.5" />
+   609→                  {aiProvider === 'gemini' ? 'Gemini API Key' : 'OpenRouter API Key'}
+   610→                </Label>
+   611→                <div className="relative">
+   612→                  <Input
+   613→                    id="apikey"
+   614→                    type={showKey ? 'text' : 'password'}
+   615→                    value={geminiKey}
+   616→                    onChange={(e) => setGeminiKey(e.target.value)}
+   617→                    placeholder={
+   618→                      aiProvider === 'gemini'
+   619→                        ? 'Enter your Gemini API key'
+   620→                        : 'Enter your OpenRouter API key'
+   621→                    }
+   622→                    className="rounded-xl bg-background/40 pr-10 font-mono text-sm"
+   623→                  />
+   624→                  <button
+   625→                    onClick={() => setShowKey((s) => !s)}
+   626→                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+   627→                    type="button"
+   628→                  >
+   629→                    {showKey ? (
+   630→                      <EyeOff className="w-4 h-4" />
+   631→                    ) : (
+   632→                      <Eye className="w-4 h-4" />
+   633→                    )}
+   634→                  </button>
+   635→                </div>
+   636→                <p className="text-[11px] text-muted-foreground">
+   637→                  Stored on your account. The backend uses in-house AI regardless; this key
+   638→                  is saved for display only.
+   639→                </p>
+   640→              </div>
+   641→
+   642→              <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+   643→                <Button
+   644→                  variant="outline"
+   645→                  onClick={handleTestConnection}
+   646→                  disabled={testing}
+   647→                  className="rounded-xl"
+   648→                >
+   649→                  {testing ? (
+   650→                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   651→                  ) : (
+   652→                    <Sparkles className="w-4 h-4 mr-2" />
+   653→                  )}
+   654→                  Test connection
+   655→                </Button>
+   656→                <Button
+   657→                  onClick={handleAiSave}
+   658→                  disabled={savingAi}
+   659→                  className="rounded-xl grad-primary text-white"
+   660→                >
+   661→                  {savingAi ? (
+   662→                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   663→                  ) : (
+   664→                    <Check className="w-4 h-4 mr-2" />
+   665→                  )}
+   666→                  Save AI settings
+   667→                </Button>
+   668→              </div>
+   669→            </CardContent>
+   670→          </GlassCard>
+   671→
+   672→          <GlassCard delay={0.1}>
+   673→            <CardContent className="p-4">
+   674→              <div className="flex gap-3">
+   675→                <div className="w-9 h-9 rounded-lg grad-cool flex items-center justify-center shrink-0">
+   676→                  <Info className="w-4 h-4 text-white" />
+   677→                </div>
+   678→                <div className="text-sm">
+   679→                  <p className="font-semibold mb-0.5">Free tier info</p>
+   680→                  <p className="text-muted-foreground text-xs leading-relaxed">
+   681→                    Google&apos;s Gemini API offers a generous free tier (15 RPM, 1500 requests/day).
+   682→                    You can get a key from Google AI Studio. OpenRouter requires credits and offers
+   683→                    access to many models behind a single API.
+   684→                  </p>
+   685→                </div>
+   686→              </div>
+   687→            </CardContent>
+   688→          </GlassCard>
+   689→        </TabsContent>
+   690→
+   691→        {/* NOTIFICATIONS */}
+   692→        <TabsContent value="notifications" className="space-y-4">
+   693→          <GlassCard delay={0.05}>
+   694→            <CardHeader className="pb-3">
+   695→              <CardTitle className="flex items-center gap-2 text-base">
+   696→                <BellRing className="w-4 h-4 text-primary" /> Notification preferences
+   697→              </CardTitle>
+   698→              <CardDescription className="text-xs">
+   699→                Toggle what we notify you about. Changes save instantly.
+   700→              </CardDescription>
+   701→            </CardHeader>
+   702→            <CardContent>
+   703→              <div className="grid sm:grid-cols-2 gap-3">
+   704→                <NotifToggle
+   705→                  id="emailNotifications"
+   706→                  label="Email notifications"
+   707→                  description="Receive notifications by email"
+   708→                  icon={Mail}
+   709→                  color="grad-primary"
+   710→                  value={!!settings.emailNotifications}
+   711→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, emailNotifications: s } : cur))}
+   712→                  patch={updateSetting}
+   713→                />
+   714→                <NotifToggle
+   715→                  id="pushNotifications"
+   716→                  label="Push notifications"
+   717→                  description="Browser & device push alerts"
+   718→                  icon={BellRing}
+   719→                  color="grad-cool"
+   720→                  value={!!settings.pushNotifications}
+   721→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, pushNotifications: s } : cur))}
+   722→                  patch={updateSetting}
+   723→                />
+   724→                <NotifToggle
+   725→                  id="uploadReminders"
+   726→                  label="Upload reminders"
+   727→                  description="Remind me to keep a schedule"
+   728→                  icon={Upload}
+   729→                  color="grad-cool"
+   730→                  value={!!settings.uploadReminders}
+   731→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, uploadReminders: s } : cur))}
+   732→                  patch={updateSetting}
+   733→                />
+   734→                <NotifToggle
+   735→                  id="weeklyReports"
+   736→                  label="Weekly reports"
+   737→                  description="Performance summary every Monday"
+   738→                  icon={FileBarChart}
+   739→                  color="grad-success"
+   740→                  value={!!settings.weeklyReports}
+   741→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, weeklyReports: s } : cur))}
+   742→                  patch={updateSetting}
+   743→                />
+   744→                <NotifToggle
+   745→                  id="monthlyReports"
+   746→                  label="Monthly reports"
+   747→                  description="Deep-dive analytics monthly"
+   748→                  icon={Calendar}
+   749→                  color="grad-warm"
+   750→                  value={!!settings.monthlyReports}
+   751→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, monthlyReports: s } : cur))}
+   752→                  patch={updateSetting}
+   753→                />
+   754→                <NotifToggle
+   755→                  id="trendingAlerts"
+   756→                  label="Trending alerts"
+   757→                  description="Notify on trending topics"
+   758→                  icon={Flame}
+   759→                  color="grad-warm"
+   760→                  value={!!settings.trendingAlerts}
+   761→                  onSaved={(s) => setSettings((cur) => (cur ? { ...cur, trendingAlerts: s } : cur))}
+   762→                  patch={updateSetting}
+   763→                />
+   764→              </div>
+   765→            </CardContent>
+   766→          </GlassCard>
+   767→        </TabsContent>
+   768→
+   769→        {/* CONNECTED ACCOUNTS */}
+   770→        <TabsContent value="accounts" className="space-y-4">
+   771→          <GlassCard delay={0.05}>
+   772→            <CardHeader className="pb-3">
+   773→              <CardTitle className="flex items-center gap-2 text-base">
+   774→                <Link2 className="w-4 h-4 text-primary" /> Connected accounts
+   775→              </CardTitle>
+   776→              <CardDescription className="text-xs">
+   777→                Manage third-party integrations.
+   778→              </CardDescription>
+   779→            </CardHeader>
+   780→            <CardContent className="space-y-3">
+   781→              {/* YouTube */}
+   782→              <AccountRow
+   783→                name="YouTube"
+   784→                description={
+   785→                  channels.length > 0
+   786→                    ? `${channels.length} channel${channels.length === 1 ? '' : 's'} connected`
+   787→                    : 'Not connected'
+   788→                }
+   789→                icon={Youtube}
+   790→                color="bg-red-500/15 text-red-400"
+   791→                connected={channels.length > 0}
+   792→                onAction={() =>
+   793→                  channels.length > 0
+   794→                    ? toast.info('Disconnect is cosmetic in this demo')
+   795→                    : toast.success('YouTube connected', {
+   796→                        description: 'OAuth flow would happen here.',
+   797→                      })
+   798→                }
+   799→                actionLabel={channels.length > 0 ? 'Disconnect' : 'Connect'}
+   800→              />
+   801→              <Separator />
+   802→              {/* Google */}
+   803→              <AccountRow
+   804→                name="Google"
+   805→                description="Signed in with Google"
+   806→                icon={Mail}
+   807→                color="bg-sky-500/15 text-sky-400"
+   808→                connected={!!user?.email}
+   809→                onAction={() => toast.info('Already connected via Google')}
+   810→                actionLabel="Connected"
+   811→                disabled
+   812→              />
+   813→            </CardContent>
+   814→          </GlassCard>
+   815→
+   816→          <GlassCard delay={0.1}>
+   817→            <CardHeader className="pb-3">
+   818→              <CardTitle className="text-base">Coming soon</CardTitle>
+   819→              <CardDescription className="text-xs">
+   820→                Integrations on the roadmap.
+   821→              </CardDescription>
+   822→            </CardHeader>
+   823→            <CardContent className="grid sm:grid-cols-3 gap-3">
+   824→              {[
+   825→                { name: 'TikTok', icon: Camera },
+   826→                { name: 'Instagram', icon: Camera },
+   827→                { name: 'X (Twitter)', icon: Send },
+   828→              ].map((p) => {
+   829→                const Icon = p.icon
+   830→                return (
+   831→                  <div
+   832→                    key={p.name}
+   833→                    className="rounded-2xl border border-dashed border-border p-4 opacity-60"
+   834→                  >
+   835→                    <div className="w-9 h-9 rounded-lg glass flex items-center justify-center mb-2">
+   836→                      <Icon className="w-4 h-4 text-muted-foreground" />
+   837→                    </div>
+   838→                    <p className="font-medium text-sm">{p.name}</p>
+   839→                    <Badge variant="outline" className="mt-1 text-[10px] font-normal">
+   840→                      Coming soon
+   841→                    </Badge>
+   842→                  </div>
+   843→                )
+   844→              })}
+   845→            </CardContent>
+   846→          </GlassCard>
+   847→        </TabsContent>
+   848→
+   849→        {/* SECURITY */}
+   850→        <TabsContent value="security" className="space-y-4">
+   851→          <GlassCard delay={0.05}>
+   852→            <CardHeader className="pb-3">
+   853→              <CardTitle className="flex items-center gap-2 text-base">
+   854→                <Lock className="w-4 h-4 text-primary" /> Change password
+   855→              </CardTitle>
+   856→              <CardDescription className="text-xs">
+   857→                Use a strong, unique password. Cosmetic in this demo.
+   858→              </CardDescription>
+   859→            </CardHeader>
+   860→            <CardContent className="space-y-3">
+   861→              <div className="grid sm:grid-cols-3 gap-3">
+   862→                <div className="space-y-1.5">
+   863→                  <Label htmlFor="curpw" className="text-sm">Current</Label>
+   864→                  <Input
+   865→                    id="curpw"
+   866→                    type="password"
+   867→                    value={pw.current}
+   868→                    onChange={(e) => setPw((s) => ({ ...s, current: e.target.value }))}
+   869→                    className="rounded-xl bg-background/40"
+   870→                    placeholder="••••••••"
+   871→                  />
+   872→                </div>
+   873→                <div className="space-y-1.5">
+   874→                  <Label htmlFor="newpw" className="text-sm">New</Label>
+   875→                  <Input
+   876→                    id="newpw"
+   877→                    type="password"
+   878→                    value={pw.next}
+   879→                    onChange={(e) => setPw((s) => ({ ...s, next: e.target.value }))}
+   880→                    className="rounded-xl bg-background/40"
+   881→                    placeholder="At least 8 chars"
+   882→                  />
+   883→                </div>
+   884→                <div className="space-y-1.5">
+   885→                  <Label htmlFor="confirmpw" className="text-sm">Confirm</Label>
+   886→                  <Input
+   887→                    id="confirmpw"
+   888→                    type="password"
+   889→                    value={pw.confirm}
+   890→                    onChange={(e) => setPw((s) => ({ ...s, confirm: e.target.value }))}
+   891→                    className="rounded-xl bg-background/40"
+   892→                    placeholder="Repeat new password"
+   893→                  />
+   894→                </div>
+   895→              </div>
+   896→              <div className="flex justify-end">
+   897→                <Button
+   898→                  onClick={handlePasswordSave}
+   899→                  className="rounded-xl grad-primary text-white"
+   900→                >
+   901→                  <KeyRound className="w-4 h-4 mr-2" /> Update password
+   902→                </Button>
+   903→              </div>
+   904→            </CardContent>
+   905→          </GlassCard>
+   906→
+   907→          <GlassCard delay={0.1}>
+   908→            <CardHeader className="pb-3">
+   909→              <CardTitle className="flex items-center gap-2 text-base">
+   910→                <Smartphone className="w-4 h-4 text-primary" /> Active sessions
+   911→              </CardTitle>
+   912→              <CardDescription className="text-xs">
+   913→                Devices currently signed in to your account.
+   914→              </CardDescription>
+   915→            </CardHeader>
+   916→            <CardContent className="space-y-2">
+   917→              <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+   918→                <div className="w-9 h-9 rounded-lg grad-primary flex items-center justify-center">
+   919→                  <Smartphone className="w-4 h-4 text-white" />
+   920→                </div>
+   921→                <div className="flex-1 min-w-0">
+   922→                  <div className="flex items-center gap-2">
+   923→                    <span className="font-medium text-sm">This device</span>
+   924→                    <Badge className="grad-success text-white border-0 text-[10px]">Current</Badge>
+   925→                  </div>
+   926→                  <p className="text-xs text-muted-foreground">
+   927→                    {user?.email ?? '—'} · Active now
+   928→                  </p>
+   929→                </div>
+   930→                <Clock className="w-4 h-4 text-muted-foreground" />
+   931→              </div>
+   932→              <div className="flex justify-end pt-1">
+   933→                <Button
+   934→                  variant="outline"
+   935→                  className="rounded-xl text-red-500 hover:text-red-400 hover:bg-red-500/10"
+   936→                  onClick={() =>
+   937→                    toast.success('Signed out from all other devices', {
+   938→                      description: 'Cosmetic — no other sessions were active.',
+   939→                    })
+   940→                  }
+   941→                >
+   942→                  <LogOut className="w-4 h-4 mr-2" /> Sign out all devices
+   943→                </Button>
+   944→              </div>
+   945→            </CardContent>
+   946→          </GlassCard>
+   947→
+   948→          <GlassCard delay={0.15}>
+   949→            <CardContent className="p-4">
+   950→              <div className="flex gap-3">
+   951→                <div className="w-9 h-9 rounded-lg grad-warm flex items-center justify-center shrink-0">
+   952→                  <Shield className="w-4 h-4 text-white" />
+   953→                </div>
+   954→                <div className="text-sm">
+   955→                  <p className="font-semibold mb-0.5">Role-based access (RBAC)</p>
+   956→                  <p className="text-muted-foreground text-xs leading-relaxed">
+   957→                    Your role (<span className="capitalize font-medium text-foreground">{user?.role ?? 'creator'}</span>) determines which features and API
+   958→                    routes you can access. Admins manage members and integrations; creators
+   959→                    manage content; viewers have read-only access to analytics.
+   960→                  </p>
+   961→                </div>
+   962→              </div>
+   963→            </CardContent>
+   964→          </GlassCard>
+   965→        </TabsContent>
+   966→      </Tabs>
+   967→    </div>
+   968→  )
+   969→}
+   970→
+   971→// Settings2 imported at top with other icons
+   972→
+   973→function AccountRow({
+   974→  name,
+   975→  description,
+   976→  icon: Icon,
+   977→  color,
+   978→  connected,
+   979→  onAction,
+   980→  actionLabel,
+   981→  disabled,
+   982→}: {
+   983→  name: string
+   984→  description: string
+   985→  icon: typeof Youtube
+   986→  color: string
+   987→  connected: boolean
+   988→  onAction: () => void
+   989→  actionLabel: string
+   990→  disabled?: boolean
+   991→}) {
+   992→  return (
+   993→    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+   994→      <div className="flex items-center gap-3 flex-1 min-w-0">
+   995→        <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center shrink-0`}>
+   996→          <Icon className="w-5 h-5" />
+   997→        </div>
+   998→        <div className="min-w-0 flex-1">
+   999→          <div className="flex items-center gap-2">
+  1000→            <span className="font-semibold text-sm">{name}</span>
+  1001→            {connected && (
+  1002→              <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 text-[10px]">
+  1003→                <CircleDot className="w-2.5 h-2.5 mr-1 fill-emerald-400" /> Connected
+  1004→              </Badge>
+  1005→            )}
+  1006→          </div>
+  1007→          <p className="text-xs text-muted-foreground truncate">{description}</p>
+  1008→        </div>
+  1009→      </div>
+  1010→      <Button
+  1011→        variant={connected ? 'outline' : 'default'}
+  1012→        size="sm"
+  1013→        onClick={onAction}
+  1014→        disabled={disabled}
+  1015→        className={`rounded-xl ${connected ? '' : 'grad-primary text-white'}`}
+  1016→      >
+  1017→        {actionLabel}
+  1018→      </Button>
+  1019→    </div>
+  1020→  )
+  1021→}
+  1022→
+  1023→function NotifToggle({
+  1024→  id,
+  1025→  label,
+  1026→  description,
+  1027→  icon: Icon,
+  1028→  color,
+  1029→  value,
+  1030→  onSaved,
+  1031→  patch,
+  1032→}: {
+  1033→  id: string
+  1034→  label: string
+  1035→  description: string
+  1036→  icon: typeof Bell
+  1037→  color: string
+  1038→  value: boolean
+  1039→  onSaved: (v: boolean) => void
+  1040→  patch: (p: Partial<UserSettings>) => Promise<void>
+  1041→}) {
+  1042→  const [pending, setPending] = useState(false)
+  1043→  const [local, setLocal] = useState(value)
+  1044→
+  1045→  // keep in sync if upstream changes
+  1046→  useEffect(() => {
+  1047→    setLocal(value)
+  1048→  }, [value])
+  1049→
+  1050→  const handle = async (v: boolean) => {
+  1051→    setLocal(v)
+  1052→    setPending(true)
+  1053→    try {
+  1054→      await patch({ [id]: v })
+  1055→      onSaved(v)
+  1056→      toast.success(`${label} ${v ? 'enabled' : 'disabled'}`)
+  1057→    } catch {
+  1058→      setLocal(!v)
+  1059→      // toast already shown by patch wrapper
+  1060→    } finally {
+  1061→      setPending(false)
+  1062→    }
+  1063→  }
+  1064→
+  1065→  return (
+  1066→    <div className="rounded-2xl border border-border/60 p-4 bg-background/30 flex items-start gap-3">
+  1067→      <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center shrink-0`}>
+  1068→        <Icon className="w-4 h-4 text-white" />
+  1069→      </div>
+  1070→      <div className="flex-1 min-w-0">
+  1071→        <Label className="text-sm font-medium block">{label}</Label>
+  1072→        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+  1073→      </div>
+  1074→      <Switch checked={local} disabled={pending} onCheckedChange={handle} />
+  1075→    </div>
+  1076→  )
+  1077→}
+  1078→

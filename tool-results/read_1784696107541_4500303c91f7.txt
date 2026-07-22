@@ -1,0 +1,880 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useEffect, useMemo, useState } from 'react'
+     4→     4→import { motion } from 'framer-motion'
+     5→     5→import {
+     6→     6→  BarChart3,
+     7→     7→  Users,
+     8→     8→  Eye,
+     9→     9→  Clock,
+    10→    10→  DollarSign,
+    11→    11→  ArrowUpRight,
+    12→    12→  ArrowDownRight,
+    13→    13→  TrendingUp,
+    14→    14→  Sparkles,
+    15→    15→  PieChart as PieIcon,
+    16→    16→  Video as VideoIcon,
+    17→    17→  ThumbsUp,
+    18→    18→  MessageCircle,
+    19→    19→} from 'lucide-react'
+    20→    20→import {
+    21→    21→  Card,
+    22→    22→  CardContent,
+    23→    23→  CardHeader,
+    24→    24→  CardTitle,
+    25→    25→  CardDescription,
+    26→    26→} from '@/components/ui/card'
+    27→    27→import { Button } from '@/components/ui/button'
+    28→    28→import { Badge } from '@/components/ui/badge'
+    29→    29→import {
+    30→    30→  Select,
+    31→    31→  SelectContent,
+    32→    32→  SelectItem,
+    33→    33→  SelectTrigger,
+    34→    34→  SelectValue,
+    35→    35→} from '@/components/ui/select'
+    36→    36→import {
+    37→    37→  Table,
+    38→    38→  TableHeader,
+    39→    39→  TableBody,
+    40→    40→  TableHead,
+    41→    41→  TableRow,
+    42→    42→  TableCell,
+    43→    43→} from '@/components/ui/table'
+    44→    44→import {
+    45→    45→  AreaChart,
+    46→    46→  Area,
+    47→    47→  BarChart,
+    48→    48→  Bar,
+    49→    49→  LineChart,
+    50→    50→  Line,
+    51→    51→  PieChart,
+    52→    52→  Pie,
+    53→    53→  Cell,
+    54→    54→  ResponsiveContainer,
+    55→    55→  Tooltip,
+    56→    56→  XAxis,
+    57→    57→  YAxis,
+    58→    58→  CartesianGrid,
+    59→    59→  Legend,
+    60→    60→} from 'recharts'
+    61→    61→import { apiFetch, formatNumber } from '@/lib/api-client'
+    62→    62→import { useAppStore } from '@/lib/store'
+    63→    63→
+    64→    64→interface Channel {
+    65→    65→  id: string
+    66→    66→  title: string
+    67→    67→  subscriberCount: number
+    68→    68→  videoCount: number
+    69→    69→  viewCount: number
+    70→    70→}
+    71→    71→
+    72→    72→interface Video {
+    73→    73→  id: string
+    74→    74→  title: string
+    75→    75→  viewCount: number
+    76→    76→  likeCount: number
+    77→    77→  commentCount: number
+    78→    78→  isShort: boolean
+    79→    79→  publishedAt: string
+    80→    80→  channel?: { title: string }
+    81→    81→}
+    82→    82→
+    83→    83→type TimeRange = '7d' | '30d' | '90d' | '12m'
+    84→    84→
+    85→    85→const COLORS = {
+    86→    86→  primary: 'oklch(0.7 0.24 350)',
+    87→    87→  green: 'oklch(0.72 0.18 160)',
+    88→    88→  amber: 'oklch(0.78 0.18 70)',
+    89→    89→  sky: 'oklch(0.68 0.22 200)',
+    90→    90→  red: 'oklch(0.7 0.25 20)',
+    91→    91→  violet: 'oklch(0.65 0.2 290)',
+    92→    92→}
+    93→    93→
+    94→    94→const TRAFFIC_COLORS = [
+    95→    95→  COLORS.primary,
+    96→    96→  COLORS.sky,
+    97→    97→  COLORS.green,
+    98→    98→  COLORS.amber,
+    99→    99→  COLORS.violet,
+   100→   100→]
+   101→   101→
+   102→   102→// Deterministic pseudo-random for stable client-side series
+   103→   103→function seeded(seed: number) {
+   104→   104→  let s = seed
+   105→   105→  return () => {
+   106→   106→    s = (s * 9301 + 49297) % 233280
+   107→   107→    return s / 233280
+   108→   108→  }
+   109→   109→}
+   110→   110→
+   111→   111→function genDailySeries(total: number, days: number, seed: number, trend = 0.5) {
+   112→   112→  const rng = seeded(seed)
+   113→   113→  const daily = total / days
+   114→   114→  const out: { day: string; value: number }[] = []
+   115→   115→  for (let i = 0; i < days; i++) {
+   116→   116→    const noise = 0.6 + rng() * 0.9
+   117→   117→    const trendBoost = 1 + (trend * i) / days
+   118→   118→    out.push({
+   119→   119→      day: `D${i + 1}`,
+   120→   120→      value: Math.max(0, Math.round(daily * noise * trendBoost)),
+   121→   121→    })
+   122→   122→  }
+   123→   123→  // Make last point land near total/days
+   124→   124→  return out
+   125→   125→}
+   126→   126→
+   127→   127→function genMonthlySeries(total: number, seed: number) {
+   128→   128→  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+   129→   129→  const rng = seeded(seed)
+   130→   130→  let val = Math.max(total * 0.55, 100)
+   131→   131→  const out: { month: string; subs: number; views: number }[] = []
+   132→   132→  for (let i = 0; i < 12; i++) {
+   133→   133→    const grow = 1 + (rng() * 0.12 + 0.02)
+   134→   134→    val = Math.round(val * grow)
+   135→   135→    out.push({
+   136→   136→      month: months[i],
+   137→   137→      subs: Math.round(val * 0.85 + rng() * val * 0.1),
+   138→   138→      views: Math.round(val * (40 + rng() * 30)),
+   139→   139→    })
+   140→   140→  }
+   141→   141→  // Pin final values near real totals
+   142→   142→  if (out.length > 0) {
+   143→   143→    out[out.length - 1].subs = total
+   144→   144→    out[out.length - 1].views = total * 45
+   145→   145→  }
+   146→   146→  return out
+   147→   147→}
+   148→   148→
+   149→   149→function genCtrSeries(seed: number) {
+   150→   150→  const rng = seeded(seed)
+   151→   151→  const out: { day: string; ctr: number; avd: number }[] = []
+   152→   152→  for (let i = 0; i < 14; i++) {
+   153→   153→    out.push({
+   154→   154→      day: `${i + 1}`,
+   155→   155→      ctr: +(3.5 + rng() * 4.5).toFixed(2),
+   156→   156→      avd: +(2.5 + rng() * 4).toFixed(1),
+   157→   157→    })
+   158→   158→  }
+   159→   159→  return out
+   160→   160→}
+   161→   161→
+   162→   162→function genRetentionCurve(seed: number) {
+   163→   163→  const rng = seeded(seed)
+   164→   164→  const out: { pct: string; retention: number }[] = []
+   165→   165→  for (let i = 0; i <= 10; i++) {
+   166→   166→    const t = i / 10
+   167→   167→    // Exponential-ish decline: 100% → ~18%
+   168→   168→    const base = 100 * Math.exp(-t * 1.7)
+   169→   169→    const noise = (rng() - 0.5) * 4
+   170→   170→    out.push({
+   171→   171→      pct: `${i * 10}%`,
+   172→   172→      retention: Math.max(10, Math.round(base + noise)),
+   173→   173→    })
+   174→   174→  }
+   175→   175→  return out
+   176→   176→}
+   177→   177→
+   178→   178→const tooltipStyle = {
+   179→   179→  background: 'var(--glass-bg)',
+   180→   180→  border: '1px solid var(--glass-border)',
+   181→   181→  borderRadius: 12,
+   182→   182→  backdropFilter: 'blur(20px)',
+   183→   183→  fontSize: 12,
+   184→   184→}
+   185→   185→
+   186→   186→export function AnalyticsView() {
+   187→   187→  const { viewParams } = useAppStore()
+   188→   188→  const presetChannelId = (viewParams.channelId as string) || ''
+   189→   189→
+   190→   190→  const [channels, setChannels] = useState<Channel[]>([])
+   191→   191→  const [videos, setVideos] = useState<Video[]>([])
+   192→   192→  const [loading, setLoading] = useState(true)
+   193→   193→  const [range, setRange] = useState<TimeRange>('30d')
+   194→   194→
+   195→   195→  useEffect(() => {
+   196→   196→    Promise.all([
+   197→   197→      apiFetch<{ channels: Channel[] }>('/api/channels'),
+   198→   198→      apiFetch<{ videos: Video[] }>(
+   199→   199→        presetChannelId ? `/api/videos?channelId=${presetChannelId}` : '/api/videos'
+   200→   200→      ),
+   201→   201→    ])
+   202→   202→      .then(([c, v]) => {
+   203→   203→        setChannels(c.channels)
+   204→   204→        setVideos(v.videos || [])
+   205→   205→      })
+   206→   206→      .catch(() => {})
+   207→   207→      .finally(() => setLoading(false))
+   208→   208→  }, [presetChannelId])
+   209→   209→
+   210→   210→  const totals = useMemo(() => {
+   211→   211→    const subs = channels.reduce((s, c) => s + c.subscriberCount, 0)
+   212→   212→    const views = channels.reduce((s, c) => s + c.viewCount, 0)
+   213→   213→    const vids = channels.reduce((s, c) => s + c.videoCount, 0)
+   214→   214→    return {
+   215→   215→      subs,
+   216→   216→      views,
+   217→   217→      vids,
+   218→   218→      watchHours: Math.round(views * 0.041),
+   219→   219→      revenue: Math.round(views * 0.0048),
+   220→   220→    }
+   221→   221→  }, [channels])
+   222→   222→
+   223→   223→  const days = range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : 30
+   224→   224→  const seed = totals.subs + totals.views
+   225→   225→
+   226→   226→  const subSeries = useMemo(
+   227→   227→    () => genDailySeries(Math.max(totals.subs, 1000), days, seed, 0.4),
+   228→   228→    [totals.subs, days, seed]
+   229→   229→  )
+   230→   230→  const viewSeries = useMemo(
+   231→   231→    () => genDailySeries(Math.max(totals.views, 5000), days, seed + 7, 0.6),
+   232→   232→    [totals.views, days, seed]
+   233→   233→  )
+   234→   234→  const watchSeries = useMemo(
+   235→   235→    () => genDailySeries(Math.max(totals.watchHours, 100), days, seed + 13, 0.5),
+   236→   236→    [totals.watchHours, days, seed]
+   237→   237→  )
+   238→   238→  const revenueSeries = useMemo(
+   239→   239→    () => genDailySeries(Math.max(totals.revenue, 50), days, seed + 19, 0.7),
+   240→   240→    [totals.revenue, days, seed]
+   241→   241→  )
+   242→   242→
+   243→   243→  const monthlySeries = useMemo(
+   244→   244→    () => genMonthlySeries(Math.max(totals.subs, 1000), seed + 3),
+   245→   245→    [totals.subs, seed]
+   246→   246→  )
+   247→   247→
+   248→   248→  const dailyBars = useMemo(() => {
+   249→   249→    // last 14 days of views
+   250→   250→    const rng = seeded(seed + 99)
+   251→   251→    const daily = totals.views / 30
+   252→   252→    const out: { day: string; views: number }[] = []
+   253→   253→    for (let i = 13; i >= 0; i--) {
+   254→   254→      out.push({
+   255→   255→        day: `${i === 0 ? 'Today' : i + 'd'}`,
+   256→   256→        views: Math.round(daily * (0.5 + rng() * 1.1)),
+   257→   257→      })
+   258→   258→    }
+   259→   259→    return out
+   260→   260→  }, [totals.views, seed])
+   261→   261→
+   262→   262→  const ctrSeries = useMemo(() => genCtrSeries(seed + 31), [seed])
+   263→   263→  const retention = useMemo(() => genRetentionCurve(seed + 41), [seed])
+   264→   264→
+   265→   265→  const traffic = useMemo(
+   266→   266→    () => [
+   267→   267→      { name: 'Search', value: 35 },
+   268→   268→      { name: 'Suggested', value: 28 },
+   269→   269→      { name: 'Browse', value: 18 },
+   270→   270→      { name: 'External', value: 12 },
+   271→   271→      { name: 'Direct', value: 7 },
+   272→   272→    ],
+   273→   273→    []
+   274→   274→  )
+   275→   275→
+   276→   276→  const topVideos = useMemo(() => {
+   277→   277→    return [...videos]
+   278→   278→      .sort((a, b) => b.viewCount - a.viewCount)
+   279→   279→      .slice(0, 8)
+   280→   280→      .map((v) => {
+   281→   281→        const er =
+   282→   282→          v.viewCount > 0
+   283→   283→            ? ((v.likeCount + v.commentCount) / v.viewCount) * 100
+   284→   284→            : 0
+   285→   285→        return { ...v, engagementRate: +er.toFixed(2) }
+   286→   286→      })
+   287→   287→  }, [videos])
+   288→   288→
+   289→   289→  if (loading) {
+   290→   290→    return (
+   291→   291→      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   292→   292→        <div className="h-16 rounded-2xl glass shimmer" />
+   293→   293→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+   294→   294→          {Array.from({ length: 4 }).map((_, i) => (
+   295→   295→            <div key={i} className="h-32 rounded-2xl glass shimmer" />
+   296→   296→          ))}
+   297→   297→        </div>
+   298→   298→        <div className="grid lg:grid-cols-2 gap-4">
+   299→   299→          {Array.from({ length: 2 }).map((_, i) => (
+   300→   300→            <div key={i} className="h-80 rounded-2xl glass shimmer" />
+   301→   301→          ))}
+   302→   302→        </div>
+   303→   303→        <div className="grid lg:grid-cols-2 gap-4">
+   304→   304→          {Array.from({ length: 2 }).map((_, i) => (
+   305→   305→            <div key={i} className="h-72 rounded-2xl glass shimmer" />
+   306→   306→          ))}
+   307→   307→        </div>
+   308→   308→      </div>
+   309→   309→    )
+   310→   310→  }
+   311→   311→
+   312→   312→  return (
+   313→   313→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   314→   314→      {/* Header */}
+   315→   315→      <motion.div
+   316→   316→        initial={{ opacity: 0, y: 10 }}
+   317→   317→        animate={{ opacity: 1, y: 0 }}
+   318→   318→        className="flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+   319→   319→      >
+   320→   320→        <div>
+   321→   321→          <div className="flex items-center gap-2 mb-1">
+   322→   322→            <BarChart3 className="w-4 h-4 text-primary" />
+   323→   323→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   324→   324→              Performance Insights
+   325→   325→            </span>
+   326→   326→          </div>
+   327→   327→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   328→   328→            Analytics Dashboard
+   329→   329→          </h1>
+   330→   330→          <p className="text-sm text-muted-foreground mt-1">
+   331→   331→            {channels.length > 0
+   332→   332→              ? `Aggregated performance across ${channels.length} channel${channels.length > 1 ? 's' : ''}.`
+   333→   333→              : 'Connect a channel to see real analytics.'}
+   334→   334→          </p>
+   335→   335→        </div>
+   336→   336→        <div className="flex items-center gap-2">
+   337→   337→          <Select value={range} onValueChange={(v) => setRange(v as TimeRange)}>
+   338→   338→            <SelectTrigger className="w-44 rounded-xl">
+   339→   339→              <SelectValue />
+   340→   340→            </SelectTrigger>
+   341→   341→            <SelectContent>
+   342→   342→              <SelectItem value="7d">Last 7 days</SelectItem>
+   343→   343→              <SelectItem value="30d">Last 30 days</SelectItem>
+   344→   344→              <SelectItem value="90d">Last 90 days</SelectItem>
+   345→   345→              <SelectItem value="12m">Last 12 months</SelectItem>
+   346→   346→            </SelectContent>
+   347→   347→          </Select>
+   348→   348→        </div>
+   349→   349→      </motion.div>
+   350→   350→
+   351→   351→      {/* Stat cards with sparklines */}
+   352→   352→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+   353→   353→        <StatCard
+   354→   354→          icon={Users}
+   355→   355→          label="Subscribers"
+   356→   356→          value={formatNumber(totals.subs)}
+   357→   357→          change="+4.2%"
+   358→   358→          up
+   359→   359→          delay={0}
+   360→   360→          gradient="grad-primary"
+   361→   361→          data={subSeries}
+   362→   362→          color={COLORS.primary}
+   363→   363→        />
+   364→   364→        <StatCard
+   365→   365→          icon={Eye}
+   366→   366→          label="Total Views"
+   367→   367→          value={formatNumber(totals.views)}
+   368→   368→          change="+12.8%"
+   369→   369→          up
+   370→   370→          delay={0.05}
+   371→   371→          gradient="grad-cool"
+   372→   372→          data={viewSeries}
+   373→   373→          color={COLORS.sky}
+   374→   374→        />
+   375→   375→        <StatCard
+   376→   376→          icon={Clock}
+   377→   377→          label="Watch Time (hrs)"
+   378→   378→          value={formatNumber(totals.watchHours)}
+   379→   379→          change="+8.4%"
+   380→   380→          up
+   381→   381→          delay={0.1}
+   382→   382→          gradient="grad-success"
+   383→   383→          data={watchSeries}
+   384→   384→          color={COLORS.green}
+   385→   385→        />
+   386→   386→        <StatCard
+   387→   387→          icon={DollarSign}
+   388→   388→          label="Est. Revenue"
+   389→   389→          value={`$${formatNumber(totals.revenue)}`}
+   390→   390→          change="-1.3%"
+   391→   391→          up={false}
+   392→   392→          delay={0.15}
+   393→   393→          gradient="grad-warm"
+   394→   394→          data={revenueSeries}
+   395→   395→          color={COLORS.amber}
+   396→   396→        />
+   397→   397→      </div>
+   398→   398→
+   399→   399→      {/* Two big charts */}
+   400→   400→      <div className="grid lg:grid-cols-2 gap-4">
+   401→   401→        <motion.div
+   402→   402→          initial={{ opacity: 0, y: 12 }}
+   403→   403→          animate={{ opacity: 1, y: 0 }}
+   404→   404→          transition={{ delay: 0.2 }}
+   405→   405→        >
+   406→   406→          <Card className="glass border-border/60">
+   407→   407→            <CardHeader className="flex flex-row items-center justify-between pb-2">
+   408→   408→              <div>
+   409→   409→                <CardTitle className="text-base">Subscribers &amp; Views</CardTitle>
+   410→   410→                <CardDescription className="text-xs">Last 12 months</CardDescription>
+   411→   411→              </div>
+   412→   412→              <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
+   413→   413→                <ArrowUpRight className="w-3 h-3 mr-1" /> +18.4%
+   414→   414→              </Badge>
+   415→   415→            </CardHeader>
+   416→   416→            <CardContent>
+   417→   417→              <div className="h-72">
+   418→   418→                <ResponsiveContainer width="100%" height="100%">
+   419→   419→                  <AreaChart data={monthlySeries} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+   420→   420→                    <defs>
+   421→   421→                      <linearGradient id="colorSubs" x1="0" y1="0" x2="0" y2="1">
+   422→   422→                        <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.5} />
+   423→   423→                        <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
+   424→   424→                      </linearGradient>
+   425→   425→                      <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+   426→   426→                        <stop offset="5%" stopColor={COLORS.sky} stopOpacity={0.5} />
+   427→   427→                        <stop offset="95%" stopColor={COLORS.sky} stopOpacity={0} />
+   428→   428→                      </linearGradient>
+   429→   429→                    </defs>
+   430→   430→                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.5 0.02 280 / 0.1)" />
+   431→   431→                    <XAxis
+   432→   432→                      dataKey="month"
+   433→   433→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   434→   434→                      fontSize={11}
+   435→   435→                      tickLine={false}
+   436→   436→                      axisLine={false}
+   437→   437→                    />
+   438→   438→                    <YAxis
+   439→   439→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   440→   440→                      fontSize={11}
+   441→   441→                      tickLine={false}
+   442→   442→                      axisLine={false}
+   443→   443→                      tickFormatter={(v) => formatNumber(v)}
+   444→   444→                    />
+   445→   445→                    <Tooltip contentStyle={tooltipStyle} />
+   446→   446→                    <Area
+   447→   447→                      type="monotone"
+   448→   448→                      dataKey="subs"
+   449→   449→                      stroke={COLORS.primary}
+   450→   450→                      strokeWidth={2.5}
+   451→   451→                      fill="url(#colorSubs)"
+   452→   452→                      name="Subscribers"
+   453→   453→                    />
+   454→   454→                    <Area
+   455→   455→                      type="monotone"
+   456→   456→                      dataKey="views"
+   457→   457→                      stroke={COLORS.sky}
+   458→   458→                      strokeWidth={2.5}
+   459→   459→                      fill="url(#colorViews)"
+   460→   460→                      name="Views"
+   461→   461→                    />
+   462→   462→                    <Legend
+   463→   463→                      iconType="circle"
+   464→   464→                      wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+   465→   465→                    />
+   466→   466→                  </AreaChart>
+   467→   467→                </ResponsiveContainer>
+   468→   468→              </div>
+   469→   469→            </CardContent>
+   470→   470→          </Card>
+   471→   471→        </motion.div>
+   472→   472→
+   473→   473→        <motion.div
+   474→   474→          initial={{ opacity: 0, y: 12 }}
+   475→   475→          animate={{ opacity: 1, y: 0 }}
+   476→   476→          transition={{ delay: 0.25 }}
+   477→   477→        >
+   478→   478→          <Card className="glass border-border/60">
+   479→   479→            <CardHeader className="flex flex-row items-center justify-between pb-2">
+   480→   480→              <div>
+   481→   481→                <CardTitle className="text-base">Daily Performance</CardTitle>
+   482→   482→                <CardDescription className="text-xs">Views per day — last 14 days</CardDescription>
+   483→   483→              </div>
+   484→   484→              <Badge variant="outline" className="text-sky-400 border-sky-500/30">
+   485→   485→                <TrendingUp className="w-3 h-3 mr-1" /> Live
+   486→   486→              </Badge>
+   487→   487→            </CardHeader>
+   488→   488→            <CardContent>
+   489→   489→              <div className="h-72">
+   490→   490→                <ResponsiveContainer width="100%" height="100%">
+   491→   491→                  <BarChart data={dailyBars} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+   492→   492→                    <defs>
+   493→   493→                      <linearGradient id="barViews" x1="0" y1="0" x2="0" y2="1">
+   494→   494→                        <stop offset="0%" stopColor={COLORS.primary} stopOpacity={1} />
+   495→   495→                        <stop offset="100%" stopColor={COLORS.violet} stopOpacity={0.5} />
+   496→   496→                      </linearGradient>
+   497→   497→                    </defs>
+   498→   498→                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.5 0.02 280 / 0.1)" vertical={false} />
+   499→   499→                    <XAxis
+   500→   500→                      dataKey="day"
+   501→   501→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   502→   502→                      fontSize={10}
+   503→   503→                      tickLine={false}
+   504→   504→                      axisLine={false}
+   505→   505→                      interval={1}
+   506→   506→                    />
+   507→   507→                    <YAxis
+   508→   508→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   509→   509→                      fontSize={11}
+   510→   510→                      tickLine={false}
+   511→   511→                      axisLine={false}
+   512→   512→                      tickFormatter={(v) => formatNumber(v)}
+   513→   513→                    />
+   514→   514→                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'oklch(0.5 0.02 280 / 0.06)' }} />
+   515→   515→                    <Bar
+   516→   516→                      dataKey="views"
+   517→   517→                      fill="url(#barViews)"
+   518→   518→                      radius={[6, 6, 0, 0]}
+   519→   519→                      animationDuration={900}
+   520→   520→                    />
+   521→   521→                  </BarChart>
+   522→   522→                </ResponsiveContainer>
+   523→   523→              </div>
+   524→   524→            </CardContent>
+   525→   525→          </Card>
+   526→   526→        </motion.div>
+   527→   527→      </div>
+   528→   528→
+   529→   529→      {/* CTR + Retention */}
+   530→   530→      <div className="grid lg:grid-cols-2 gap-4">
+   531→   531→        <motion.div
+   532→   532→          initial={{ opacity: 0, y: 12 }}
+   533→   533→          animate={{ opacity: 1, y: 0 }}
+   534→   534→          transition={{ delay: 0.3 }}
+   535→   535→        >
+   536→   536→          <Card className="glass border-border/60">
+   537→   537→            <CardHeader className="pb-2">
+   538→   538→              <CardTitle className="text-base">CTR &amp; Avg View Duration</CardTitle>
+   539→   539→              <CardDescription className="text-xs">Last 14 days</CardDescription>
+   540→   540→            </CardHeader>
+   541→   541→            <CardContent>
+   542→   542→              <div className="h-64">
+   543→   543→                <ResponsiveContainer width="100%" height="100%">
+   544→   544→                  <LineChart data={ctrSeries} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+   545→   545→                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.5 0.02 280 / 0.1)" />
+   546→   546→                    <XAxis
+   547→   547→                      dataKey="day"
+   548→   548→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   549→   549→                      fontSize={11}
+   550→   550→                      tickLine={false}
+   551→   551→                      axisLine={false}
+   552→   552→                    />
+   553→   553→                    <YAxis
+   554→   554→                      yAxisId="left"
+   555→   555→                      stroke={COLORS.primary}
+   556→   556→                      fontSize={11}
+   557→   557→                      tickLine={false}
+   558→   558→                      axisLine={false}
+   559→   559→                      tickFormatter={(v) => `${v}%`}
+   560→   560→                    />
+   561→   561→                    <YAxis
+   562→   562→                      yAxisId="right"
+   563→   563→                      orientation="right"
+   564→   564→                      stroke={COLORS.amber}
+   565→   565→                      fontSize={11}
+   566→   566→                      tickLine={false}
+   567→   567→                      axisLine={false}
+   568→   568→                      tickFormatter={(v) => `${v}m`}
+   569→   569→                    />
+   570→   570→                    <Tooltip contentStyle={tooltipStyle} />
+   571→   571→                    <Line
+   572→   572→                      yAxisId="left"
+   573→   573→                      type="monotone"
+   574→   574→                      dataKey="ctr"
+   575→   575→                      stroke={COLORS.primary}
+   576→   576→                      strokeWidth={2.5}
+   577→   577→                      dot={{ r: 3, fill: COLORS.primary }}
+   578→   578→                      activeDot={{ r: 5 }}
+   579→   579→                      name="CTR (%)"
+   580→   580→                      animationDuration={900}
+   581→   581→                    />
+   582→   582→                    <Line
+   583→   583→                      yAxisId="right"
+   584→   584→                      type="monotone"
+   585→   585→                      dataKey="avd"
+   586→   586→                      stroke={COLORS.amber}
+   587→   587→                      strokeWidth={2.5}
+   588→   588→                      dot={{ r: 3, fill: COLORS.amber }}
+   589→   589→                      activeDot={{ r: 5 }}
+   590→   590→                      name="Avg View Duration (min)"
+   591→   591→                      animationDuration={900}
+   592→   592→                    />
+   593→   593→                    <Legend
+   594→   594→                      iconType="circle"
+   595→   595→                      wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+   596→   596→                    />
+   597→   597→                  </LineChart>
+   598→   598→                </ResponsiveContainer>
+   599→   599→              </div>
+   600→   600→            </CardContent>
+   601→   601→          </Card>
+   602→   602→        </motion.div>
+   603→   603→
+   604→   604→        <motion.div
+   605→   605→          initial={{ opacity: 0, y: 12 }}
+   606→   606→          animate={{ opacity: 1, y: 0 }}
+   607→   607→          transition={{ delay: 0.35 }}
+   608→   608→        >
+   609→   609→          <Card className="glass border-border/60">
+   610→   610→            <CardHeader className="pb-2">
+   611→   611→              <CardTitle className="text-base">Audience Retention</CardTitle>
+   612→   612→              <CardDescription className="text-xs">Average retention curve across videos</CardDescription>
+   613→   613→            </CardHeader>
+   614→   614→            <CardContent>
+   615→   615→              <div className="h-64">
+   616→   616→                <ResponsiveContainer width="100%" height="100%">
+   617→   617→                  <AreaChart data={retention} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+   618→   618→                    <defs>
+   619→   619→                      <linearGradient id="colorRet" x1="0" y1="0" x2="0" y2="1">
+   620→   620→                        <stop offset="5%" stopColor={COLORS.green} stopOpacity={0.55} />
+   621→   621→                        <stop offset="95%" stopColor={COLORS.green} stopOpacity={0} />
+   622→   622→                      </linearGradient>
+   623→   623→                    </defs>
+   624→   624→                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.5 0.02 280 / 0.1)" />
+   625→   625→                    <XAxis
+   626→   626→                      dataKey="pct"
+   627→   627→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   628→   628→                      fontSize={11}
+   629→   629→                      tickLine={false}
+   630→   630→                      axisLine={false}
+   631→   631→                    />
+   632→   632→                    <YAxis
+   633→   633→                      stroke="oklch(0.6 0.02 280 / 0.6)"
+   634→   634→                      fontSize={11}
+   635→   635→                      tickLine={false}
+   636→   636→                      axisLine={false}
+   637→   637→                      tickFormatter={(v) => `${v}%`}
+   638→   638→                      domain={[0, 100]}
+   639→   639→                    />
+   640→   640→                    <Tooltip contentStyle={tooltipStyle} />
+   641→   641→                    <Area
+   642→   642→                      type="monotone"
+   643→   643→                      dataKey="retention"
+   644→   644→                      stroke={COLORS.green}
+   645→   645→                      strokeWidth={2.5}
+   646→   646→                      fill="url(#colorRet)"
+   647→   647→                      name="Retention %"
+   648→   648→                      animationDuration={900}
+   649→   649→                    />
+   650→   650→                  </AreaChart>
+   651→   651→                </ResponsiveContainer>
+   652→   652→              </div>
+   653→   653→            </CardContent>
+   654→   654→          </Card>
+   655→   655→        </motion.div>
+   656→   656→      </div>
+   657→   657→
+   658→   658→      {/* Top videos + traffic sources */}
+   659→   659→      <div className="grid lg:grid-cols-3 gap-4">
+   660→   660→        <motion.div
+   661→   661→          initial={{ opacity: 0, y: 12 }}
+   662→   662→          animate={{ opacity: 1, y: 0 }}
+   663→   663→          transition={{ delay: 0.4 }}
+   664→   664→          className="lg:col-span-2"
+   665→   665→        >
+   666→   666→          <Card className="glass border-border/60">
+   667→   667→            <CardHeader className="flex flex-row items-center justify-between pb-3">
+   668→   668→              <div>
+   669→   669→                <CardTitle className="text-base flex items-center gap-2">
+   670→   670→                  <Sparkles className="w-4 h-4 text-primary" /> Top Performing Videos
+   671→   671→                </CardTitle>
+   672→   672→                <CardDescription className="text-xs">Sorted by views</CardDescription>
+   673→   673→              </div>
+   674→   674→              <Badge variant="outline" className="text-xs">
+   675→   675→                {topVideos.length} videos
+   676→   676→              </Badge>
+   677→   677→            </CardHeader>
+   678→   678→            <CardContent>
+   679→   679→              {topVideos.length === 0 ? (
+   680→   680→                <p className="text-sm text-muted-foreground text-center py-8">
+   681→   681→                  No videos available. Connect a channel with videos to see rankings.
+   682→   682→                </p>
+   683→   683→              ) : (
+   684→   684→                <Table>
+   685→   685→                  <TableHeader>
+   686→   686→                    <TableRow>
+   687→   687→                      <TableHead className="w-10">#</TableHead>
+   688→   688→                      <TableHead>Title</TableHead>
+   689→   689→                      <TableHead className="text-right">Views</TableHead>
+   690→   690→                      <TableHead className="text-right hidden sm:table-cell">Likes</TableHead>
+   691→   691→                      <TableHead className="text-right hidden md:table-cell">Comments</TableHead>
+   692→   692→                      <TableHead className="text-right">Engagement</TableHead>
+   693→   693→                    </TableRow>
+   694→   694→                  </TableHeader>
+   695→   695→                  <TableBody>
+   696→   696→                    {topVideos.map((v, i) => (
+   697→   697→                      <TableRow key={v.id}>
+   698→   698→                        <TableCell className="font-bold text-primary">{i + 1}</TableCell>
+   699→   699→                        <TableCell className="max-w-[200px]">
+   700→   700→                          <div className="flex items-center gap-2">
+   701→   701→                            <div className="w-8 h-8 rounded-lg grad-primary flex items-center justify-center shrink-0">
+   702→   702→                              <VideoIcon className="w-3.5 h-3.5 text-white" />
+   703→   703→                            </div>
+   704→   704→                            <div className="min-w-0">
+   705→   705→                              <p className="text-sm font-medium line-clamp-1">{v.title}</p>
+   706→   706→                              {v.channel?.title && (
+   707→   707→                                <p className="text-[10px] text-muted-foreground line-clamp-1">
+   708→   708→                                  {v.channel.title}
+   709→   709→                                </p>
+   710→   710→                              )}
+   711→   711→                            </div>
+   712→   712→                          </div>
+   713→   713→                        </TableCell>
+   714→   714→                        <TableCell className="text-right font-medium">
+   715→   715→                          {formatNumber(v.viewCount)}
+   716→   716→                        </TableCell>
+   717→   717→                        <TableCell className="text-right hidden sm:table-cell text-muted-foreground">
+   718→   718→                          <span className="inline-flex items-center gap-1">
+   719→   719→                            <ThumbsUp className="w-3 h-3" />
+   720→   720→                            {formatNumber(v.likeCount)}
+   721→   721→                          </span>
+   722→   722→                        </TableCell>
+   723→   723→                        <TableCell className="text-right hidden md:table-cell text-muted-foreground">
+   724→   724→                          <span className="inline-flex items-center gap-1">
+   725→   725→                            <MessageCircle className="w-3 h-3" />
+   726→   726→                            {formatNumber(v.commentCount)}
+   727→   727→                          </span>
+   728→   728→                        </TableCell>
+   729→   729→                        <TableCell className="text-right">
+   730→   730→                          <Badge
+   731→   731→                            variant="outline"
+   732→   732→                            className={
+   733→   733→                              v.engagementRate >= 5
+   734→   734→                                ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+   735→   735→                                : v.engagementRate >= 2
+   736→   736→                                  ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+   737→   737→                                  : 'text-muted-foreground'
+   738→   738→                            }
+   739→   739→                          >
+   740→   740→                            {v.engagementRate}%
+   741→   741→                          </Badge>
+   742→   742→                        </TableCell>
+   743→   743→                      </TableRow>
+   744→   744→                    ))}
+   745→   745→                  </TableBody>
+   746→   746→                </Table>
+   747→   747→              )}
+   748→   748→            </CardContent>
+   749→   749→          </Card>
+   750→   750→        </motion.div>
+   751→   751→
+   752→   752→        <motion.div
+   753→   753→          initial={{ opacity: 0, y: 12 }}
+   754→   754→          animate={{ opacity: 1, y: 0 }}
+   755→   755→          transition={{ delay: 0.45 }}
+   756→   756→        >
+   757→   757→          <Card className="glass border-border/60 h-full">
+   758→   758→            <CardHeader className="pb-2">
+   759→   759→              <CardTitle className="text-base flex items-center gap-2">
+   760→   760→                <PieIcon className="w-4 h-4 text-primary" /> Traffic Sources
+   761→   761→              </CardTitle>
+   762→   762→              <CardDescription className="text-xs">Where your views come from</CardDescription>
+   763→   763→            </CardHeader>
+   764→   764→            <CardContent>
+   765→   765→              <div className="h-56">
+   766→   766→                <ResponsiveContainer width="100%" height="100%">
+   767→   767→                  <PieChart>
+   768→   768→                    <Pie
+   769→   769→                      data={traffic}
+   770→   770→                      dataKey="value"
+   771→   771→                      nameKey="name"
+   772→   772→                      cx="50%"
+   773→   773→                      cy="50%"
+   774→   774→                      innerRadius={50}
+   775→   775→                      outerRadius={80}
+   776→   776→                      paddingAngle={3}
+   777→   777→                      animationDuration={900}
+   778→   778→                    >
+   779→   779→                      {traffic.map((_, i) => (
+   780→   780→                        <Cell key={i} fill={TRAFFIC_COLORS[i % TRAFFIC_COLORS.length]} stroke="var(--background)" strokeWidth={2} />
+   781→   781→                      ))}
+   782→   782→                    </Pie>
+   783→   783→                    <Tooltip
+   784→   784→                      contentStyle={tooltipStyle}
+   785→   785→                      formatter={(value: number) => `${value}%`}
+   786→   786→                    />
+   787→   787→                  </PieChart>
+   788→   788→                </ResponsiveContainer>
+   789→   789→              </div>
+   790→   790→              <div className="space-y-1.5 mt-2">
+   791→   791→                {traffic.map((t, i) => (
+   792→   792→                  <div key={t.name} className="flex items-center justify-between text-xs">
+   793→   793→                    <span className="flex items-center gap-2">
+   794→   794→                      <span
+   795→   795→                        className="w-2.5 h-2.5 rounded-full"
+   796→   796→                        style={{ background: TRAFFIC_COLORS[i] }}
+   797→   797→                      />
+   798→   798→                      {t.name}
+   799→   799→                    </span>
+   800→   800→                    <span className="font-semibold">{t.value}%</span>
+   801→   801→                  </div>
+   802→   802→                ))}
+   803→   803→              </div>
+   804→   804→            </CardContent>
+   805→   805→          </Card>
+   806→   806→        </motion.div>
+   807→   807→      </div>
+   808→   808→    </div>
+   809→   809→  )
+   810→   810→}
+   811→   811→
+   812→   812→function StatCard({
+   813→   813→  icon: Icon,
+   814→   814→  label,
+   815→   815→  value,
+   816→   816→  change,
+   817→   817→  up,
+   818→   818→  delay,
+   819→   819→  gradient,
+   820→   820→  data,
+   821→   821→  color,
+   822→   822→}: {
+   823→   823→  icon: typeof Users
+   824→   824→  label: string
+   825→   825→  value: string
+   826→   826→  change: string
+   827→   827→  up?: boolean
+   828→   828→  delay: number
+   829→   829→  gradient: string
+   830→   830→  data: { day: string; value: number }[]
+   831→   831→  color: string
+   832→   832→}) {
+   833→   833→  return (
+   834→   834→    <motion.div
+   835→   835→      initial={{ opacity: 0, y: 16 }}
+   836→   836→      animate={{ opacity: 1, y: 0 }}
+   837→   837→      transition={{ delay, duration: 0.4 }}
+   838→   838→      className="relative overflow-hidden glass rounded-2xl p-4 card-3d"
+   839→   839→    >
+   840→   840→      <div className={`absolute -right-4 -top-4 w-20 h-20 rounded-full ${gradient} opacity-20 blur-2xl`} />
+   841→   841→      <div className="flex items-start justify-between">
+   842→   842→        <div className={`w-9 h-9 rounded-xl ${gradient} flex items-center justify-center shadow-lg`}>
+   843→   843→          <Icon className="w-4.5 h-4.5 text-white" />
+   844→   844→        </div>
+   845→   845→        <span
+   846→   846→          className={`text-xs font-semibold flex items-center gap-0.5 ${
+   847→   847→            up ? 'text-emerald-400' : 'text-red-400'
+   848→   848→          }`}
+   849→   849→        >
+   850→   850→          {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+   851→   851→          {change}
+   852→   852→        </span>
+   853→   853→      </div>
+   854→   854→      <p className="text-2xl font-bold mt-2">{value}</p>
+   855→   855→      <p className="text-xs text-muted-foreground">{label}</p>
+   856→   856→      <div className="h-10 mt-2 -mx-1">
+   857→   857→        <ResponsiveContainer width="100%" height="100%">
+   858→   858→          <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+   859→   859→            <defs>
+   860→   860→              <linearGradient id={`spark-${label}`} x1="0" y1="0" x2="0" y2="1">
+   861→   861→                <stop offset="5%" stopColor={color} stopOpacity={0.5} />
+   862→   862→                <stop offset="95%" stopColor={color} stopOpacity={0} />
+   863→   863→              </linearGradient>
+   864→   864→            </defs>
+   865→   865→            <Area
+   866→   866→              type="monotone"
+   867→   867→              dataKey="value"
+   868→   868→              stroke={color}
+   869→   869→              strokeWidth={1.8}
+   870→   870→              fill={`url(#spark-${label})`}
+   871→   871→              animationDuration={700}
+   872→   872→              isAnimationActive
+   873→   873→            />
+   874→   874→          </AreaChart>
+   875→   875→        </ResponsiveContainer>
+   876→   876→      </div>
+   877→   877→    </motion.div>
+   878→   878→  )
+   879→   879→}
+   880→   880→

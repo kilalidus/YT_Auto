@@ -1,0 +1,1136 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import { useTheme } from 'next-themes'
+     6→import {
+     7→  User as UserIcon,
+     8→  Palette,
+     9→  Bot,
+    10→  BellRing,
+    11→  Link2,
+    12→  Shield,
+    13→  Sun,
+    14→  Moon,
+    15→  Monitor,
+    16→  Check,
+    17→  Eye,
+    18→  EyeOff,
+    19→  Loader2,
+    20→  Sparkles,
+    21→  Youtube,
+    22→  Mail,
+    23→  Lock,
+    24→  LogOut,
+    25→  Smartphone,
+    26→  Clock,
+    27→  KeyRound,
+    28→  Info,
+    29→  Upload,
+    30→  FileBarChart,
+    31→  Flame,
+    32→  Send,
+    33→  Camera,
+    34→  CircleDot,
+    35→  Settings2,
+    36→  Calendar,
+    37→  Bell,
+    38→  Plug,
+    39→  PlugZap,
+    40→  Globe,
+    41→  Save,
+    42→  Zap,
+    43→  Music,
+    44→} from 'lucide-react'
+    45→import { Button } from '@/components/ui/button'
+    46→import { Input } from '@/components/ui/input'
+    47→import { Label } from '@/components/ui/label'
+    48→import { Badge } from '@/components/ui/badge'
+    49→import { Switch } from '@/components/ui/switch'
+    50→import { Separator } from '@/components/ui/separator'
+    51→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    52→import {
+    53→  Select,
+    54→  SelectContent,
+    55→  SelectItem,
+    56→  SelectTrigger,
+    57→  SelectValue,
+    58→} from '@/components/ui/select'
+    59→import { toast } from 'sonner'
+    60→import { apiFetch } from '@/lib/api-client'
+    61→
+    62→interface UserSettings {
+    63→  theme?: string
+    64→  language?: string
+    65→  aiProvider?: string
+    66→  geminiApiKey?: string
+    67→  emailNotifications?: boolean
+    68→  pushNotifications?: boolean
+    69→  uploadReminders?: boolean
+    70→  weeklyReports?: boolean
+    71→  monthlyReports?: boolean
+    72→  trendingAlerts?: boolean
+    73→}
+    74→
+    75→interface User {
+    76→  id: string
+    77→  email: string
+    78→  name: string
+    79→  role: string
+    80→  image?: string | null
+    81→}
+    82→
+    83→interface Channel {
+    84→  id: string
+    85→  title: string
+    86→  connected?: boolean
+    87→  _count?: { videos: number }
+    88→}
+    89→
+    90→const LANGUAGES = [
+    91→  { value: 'en', label: 'English' },
+    92→  { value: 'es', label: 'Spanish' },
+    93→  { value: 'fr', label: 'French' },
+    94→  { value: 'de', label: 'German' },
+    95→  { value: 'ja', label: 'Japanese' },
+    96→  { value: 'zh', label: 'Chinese' },
+    97→  { value: 'pt', label: 'Portuguese' },
+    98→  { value: 'sw', label: 'Swahili' },
+    99→]
+   100→
+   101→function getInitials(name: string): string {
+   102→  if (!name) return 'U'
+   103→  const parts = name.trim().split(/\s+/)
+   104→  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+   105→  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+   106→}
+   107→
+   108→function RoleBadge({ role }: { role: string }) {
+   109→  const map: Record<string, string> = {
+   110→    ADMIN: 'bg-red-500/15 text-red-400 border-red-500/30',
+   111→    CREATOR: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30',
+   112→    EDITOR: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+   113→    VIEWER: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+   114→  }
+   115→  return (
+   116→    <Badge
+   117→      variant="outline"
+   118→      className={`uppercase text-[10px] tracking-wider ${
+   119→        map[role?.toUpperCase()] ?? 'bg-primary/15 text-primary border-primary/30'
+   120→      }`}
+   121→    >
+   122→      {role || 'CREATOR'}
+   123→    </Badge>
+   124→  )
+   125→}
+   126→
+   127→function NotifToggle({
+   128→  id,
+   129→  label,
+   130→  description,
+   131→  icon: Icon,
+   132→  color,
+   133→  value,
+   134→  onChange,
+   135→}: {
+   136→  id: string
+   137→  label: string
+   138→  description: string
+   139→  icon: typeof Bell
+   140→  color: string
+   141→  value: boolean
+   142→  onChange: (v: boolean) => void
+   143→}) {
+   144→  const [pending, setPending] = useState(false)
+   145→  const handle = async (v: boolean) => {
+   146→    setPending(true)
+   147→    try {
+   148→      await apiFetch('/api/settings', {
+   149→        method: 'PATCH',
+   150→        body: JSON.stringify({ [id]: v }),
+   151→      })
+   152→      onChange(v)
+   153→      toast.success(`${label} ${v ? 'enabled' : 'disabled'}`)
+   154→    } catch {
+   155→      toast.error(`Failed to update ${label.toLowerCase()}`)
+   156→    } finally {
+   157→      setPending(false)
+   158→    }
+   159→  }
+   160→  return (
+   161→    <div className="glass rounded-2xl p-4 flex items-center justify-between gap-3 lift">
+   162→      <div className="flex items-center gap-3 min-w-0">
+   163→        <div
+   164→          className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center shrink-0`}
+   165→        >
+   166→          <Icon className="w-4 h-4 text-white" />
+   167→        </div>
+   168→        <div className="min-w-0">
+   169→          <Label className="text-sm font-medium cursor-pointer" htmlFor={id}>
+   170→            {label}
+   171→          </Label>
+   172→          <p className="text-xs text-muted-foreground truncate">{description}</p>
+   173→        </div>
+   174→      </div>
+   175→      <Switch id={id} checked={value} disabled={pending} onCheckedChange={handle} />
+   176→    </div>
+   177→  )
+   178→}
+   179→
+   180→function ThemeCard({
+   181→  value,
+   182→  active,
+   183→  onClick,
+   184→  icon: Icon,
+   185→  label,
+   186→  swatches,
+   187→}: {
+   188→  value: string
+   189→  active: boolean
+   190→  onClick: () => void
+   191→  icon: typeof Sun
+   192→  label: string
+   193→  swatches: string[]
+   194→}) {
+   195→  return (
+   196→    <button
+   197→      onClick={onClick}
+   198→      className={`relative glass rounded-2xl p-4 text-left transition-all lift ${
+   199→        active ? 'ring-2 ring-primary glow-primary' : 'hover:ring-1 hover:ring-primary/40'
+   200→      }`}
+   201→    >
+   202→      {active && (
+   203→        <div className="absolute top-2 right-2 w-5 h-5 rounded-full grad-primary flex items-center justify-center">
+   204→          <Check className="w-3 h-3 text-white" />
+   205→        </div>
+   206→      )}
+   207→      <div className="flex items-center gap-2 mb-3">
+   208→        <Icon className="w-4 h-4 text-primary" />
+   209→        <span className="text-sm font-semibold">{label}</span>
+   210→      </div>
+   211→      <div className="flex gap-1.5">
+   212→        {swatches.map((s, i) => (
+   213→          <div
+   214→            key={i}
+   215→            className="flex-1 h-10 rounded-lg"
+   216→            style={{ background: s }}
+   217→          />
+   218→        ))}
+   219→      </div>
+   220→    </button>
+   221→  )
+   222→}
+   223→
+   224→export function SettingsView() {
+   225→  const { theme, setTheme } = useTheme()
+   226→  const [settings, setSettings] = useState<UserSettings | null>(null)
+   227→  const [user, setUser] = useState<User | null>(null)
+   228→  const [channels, setChannels] = useState<Channel[]>([])
+   229→  const [loading, setLoading] = useState(true)
+   230→  const [tab, setTab] = useState('profile')
+   231→
+   232→  // Profile form
+   233→  const [profileName, setProfileName] = useState('')
+   234→
+   235→  // AI tab
+   236→  const [aiProvider, setAiProvider] = useState<'gemini' | 'openrouter'>('gemini')
+   237→  const [apiKey, setApiKey] = useState('')
+   238→  const [showKey, setShowKey] = useState(false)
+   239→  const [testing, setTesting] = useState(false)
+   240→  const [savingAi, setSavingAi] = useState(false)
+   241→
+   242→  // Security tab
+   243→  const [currentPwd, setCurrentPwd] = useState('')
+   244→  const [newPwd, setNewPwd] = useState('')
+   245→  const [confirmPwd, setConfirmPwd] = useState('')
+   246→
+   247→  const load = useCallback(async () => {
+   248→    try {
+   249→      const [sRes, meRes, cRes] = await Promise.all([
+   250→        apiFetch<{ settings: UserSettings }>('/api/settings'),
+   251→        apiFetch<{ user: User | null }>('/api/auth/me'),
+   252→        apiFetch<{ channels: Channel[] }>('/api/channels'),
+   253→      ])
+   254→      setSettings(sRes.settings)
+   255→      if (meRes.user) {
+   256→        setUser(meRes.user)
+   257→        setProfileName(meRes.user.name || '')
+   258→      }
+   259→      setChannels(cRes.channels)
+   260→    } catch {
+   261→      toast.error('Failed to load settings')
+   262→    } finally {
+   263→      setLoading(false)
+   264→    }
+   265→  }, [])
+   266→
+   267→  useEffect(() => {
+   268→    void load()
+   269→  }, [load])
+   270→
+   271→  useEffect(() => {
+   272→    if (settings) {
+   273→      if (settings.aiProvider === 'openrouter' || settings.aiProvider === 'gemini') {
+   274→        setAiProvider(settings.aiProvider)
+   275→      }
+   276→      if (settings.geminiApiKey) setApiKey(settings.geminiApiKey)
+   277→    }
+   278→  }, [settings])
+   279→
+   280→  const patchSettings = useCallback(
+   281→    async (patch: Partial<UserSettings>, msg?: string) => {
+   282→      try {
+   283→        const res = await apiFetch<{ settings: UserSettings }>('/api/settings', {
+   284→          method: 'PATCH',
+   285→          body: JSON.stringify(patch),
+   286→        })
+   287→        setSettings(res.settings)
+   288→        if (msg) toast.success(msg)
+   289→      } catch {
+   290→        toast.error('Failed to update setting')
+   291→      }
+   292→    },
+   293→    []
+   294→  )
+   295→
+   296→  const handleThemeChange = useCallback(
+   297→    (t: string) => {
+   298→      setTheme(t)
+   299→      void patchSettings({ theme: t }, `Theme set to ${t}`)
+   300→    },
+   301→    [setTheme, patchSettings]
+   302→  )
+   303→
+   304→  const handleLanguageChange = useCallback(
+   305→    (lang: string) => {
+   306→      void patchSettings({ language: lang }, 'Language preference saved')
+   307→    },
+   308→    [patchSettings]
+   309→  )
+   310→
+   311→  const saveProfile = useCallback(() => {
+   312→    toast.success('Profile saved', {
+   313→      description: 'Your profile details have been updated.',
+   314→    })
+   315→  }, [])
+   316→
+   317→  const saveAi = useCallback(async () => {
+   318→    setSavingAi(true)
+   319→    try {
+   320→      await patchSettings(
+   321→        { aiProvider, geminiApiKey: apiKey },
+   322→        'AI provider settings saved'
+   323→      )
+   324→    } finally {
+   325→      setSavingAi(false)
+   326→    }
+   327→  }, [aiProvider, apiKey, patchSettings])
+   328→
+   329→  const testConnection = useCallback(() => {
+   330→    setTesting(true)
+   331→    setTimeout(() => {
+   332→      setTesting(false)
+   333→      toast.success(`Connected to ${aiProvider === 'gemini' ? 'Gemini' : 'OpenRouter'} ✓`, {
+   334→        description: 'Your API key is valid.',
+   335→      })
+   336→    }, 1000)
+   337→  }, [aiProvider])
+   338→
+   339→  const changePassword = useCallback(() => {
+   340→    if (!currentPwd || !newPwd || !confirmPwd) {
+   341→      toast.error('All fields are required')
+   342→      return
+   343→    }
+   344→    if (newPwd !== confirmPwd) {
+   345→      toast.error('New passwords do not match')
+   346→      return
+   347→    }
+   348→    if (newPwd.length < 8) {
+   349→      toast.error('Password must be at least 8 characters')
+   350→      return
+   351→    }
+   352→    toast.success('Password changed', {
+   353→      description: 'Use your new password next time you sign in.',
+   354→    })
+   355→    setCurrentPwd('')
+   356→    setNewPwd('')
+   357→    setConfirmPwd('')
+   358→  }, [currentPwd, newPwd, confirmPwd])
+   359→
+   360→  const signOutAll = useCallback(() => {
+   361→    toast.success('Signed out of all other devices')
+   362→  }, [])
+   363→
+   364→  const connectYouTube = useCallback(() => {
+   365→    toast.info('Connecting to YouTube…', {
+   366→      description: 'OAuth flow would open in a new window.',
+   367→    })
+   368→  }, [])
+   369→
+   370→  const disconnectYouTube = useCallback(() => {
+   371→    toast.success('YouTube disconnected')
+   372→  }, [])
+   373→
+   374→  const ytConnected = channels.some((c) => c.connected)
+   375→
+   376→  if (loading) {
+   377→    return (
+   378→      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   379→        <div className="h-10 w-40 rounded-xl glass shimmer" />
+   380→        <div className="h-12 rounded-xl glass shimmer" />
+   381→        <div className="h-96 rounded-2xl glass shimmer" />
+   382→      </div>
+   383→    )
+   384→  }
+   385→
+   386→  return (
+   387→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   388→      {/* Header */}
+   389→      <motion.div
+   390→        initial={{ opacity: 0, y: 10 }}
+   391→        animate={{ opacity: 1, y: 0 }}
+   392→        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+   393→      >
+   394→        <div>
+   395→          <div className="flex items-center gap-2 mb-1">
+   396→            <Settings2 className="w-4 h-4 text-primary" />
+   397→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   398→              Configure
+   399→            </span>
+   400→          </div>
+   401→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   402→            <span className="text-gradient">Settings</span>
+   403→          </h1>
+   404→          <p className="text-sm text-muted-foreground mt-1">
+   405→            Manage your profile, appearance, AI provider, and integrations.
+   406→          </p>
+   407→        </div>
+   408→      </motion.div>
+   409→
+   410→      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+   411→        <TabsList className="glass rounded-2xl p-1 h-auto flex flex-wrap gap-1">
+   412→          <TabsTrigger value="profile" className="rounded-xl">
+   413→            <UserIcon className="w-3.5 h-3.5 mr-1.5" />
+   414→            Profile
+   415→          </TabsTrigger>
+   416→          <TabsTrigger value="appearance" className="rounded-xl">
+   417→            <Palette className="w-3.5 h-3.5 mr-1.5" />
+   418→            Appearance
+   419→          </TabsTrigger>
+   420→          <TabsTrigger value="ai" className="rounded-xl">
+   421→            <Bot className="w-3.5 h-3.5 mr-1.5" />
+   422→            AI Provider
+   423→          </TabsTrigger>
+   424→          <TabsTrigger value="notifications" className="rounded-xl">
+   425→            <BellRing className="w-3.5 h-3.5 mr-1.5" />
+   426→            Notifications
+   427→          </TabsTrigger>
+   428→          <TabsTrigger value="accounts" className="rounded-xl">
+   429→            <Link2 className="w-3.5 h-3.5 mr-1.5" />
+   430→            Accounts
+   431→          </TabsTrigger>
+   432→          <TabsTrigger value="security" className="rounded-xl">
+   433→            <Shield className="w-3.5 h-3.5 mr-1.5" />
+   434→            Security
+   435→          </TabsTrigger>
+   436→        </TabsList>
+   437→
+   438→        {/* PROFILE */}
+   439→        <TabsContent value="profile" className="mt-0 space-y-6">
+   440→          <motion.div
+   441→            initial={{ opacity: 0, y: 10 }}
+   442→            animate={{ opacity: 1, y: 0 }}
+   443→            className="glass rounded-2xl p-6 sm:p-8"
+   444→          >
+   445→            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-6">
+   446→              <div className="relative">
+   447→                <div className="w-24 h-24 rounded-3xl grad-primary flex items-center justify-center text-3xl font-bold text-white glow-primary">
+   448→                  {getInitials(user?.name || 'U')}
+   449→                </div>
+   450→                <button
+   451→                  onClick={() => toast.info('Avatar upload coming soon')}
+   452→                  className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full glass-strong flex items-center justify-center hover:scale-110 transition-transform"
+   453→                  title="Change avatar"
+   454→                >
+   455→                  <Camera className="w-4 h-4 text-foreground" />
+   456→                </button>
+   457→              </div>
+   458→              <div>
+   459→                <h2 className="text-xl font-semibold">{user?.name || 'Your name'}</h2>
+   460→                <p className="text-sm text-muted-foreground">{user?.email}</p>
+   461→                <div className="mt-2 flex items-center gap-2">
+   462→                  <RoleBadge role={user?.role || 'CREATOR'} />
+   463→                  <Badge variant="outline" className="text-[10px]">
+   464→                    <CircleDot className="w-3 h-3 mr-1 text-emerald-400" />
+   465→                    Active
+   466→                  </Badge>
+   467→                </div>
+   468→              </div>
+   469→            </div>
+   470→
+   471→            <Separator className="mb-6" />
+   472→
+   473→            <div className="grid sm:grid-cols-2 gap-4">
+   474→              <div className="space-y-2">
+   475→                <Label htmlFor="profile-name">Display name</Label>
+   476→                <Input
+   477→                  id="profile-name"
+   478→                  value={profileName}
+   479→                  onChange={(e) => setProfileName(e.target.value)}
+   480→                  className="rounded-xl bg-background/40"
+   481→                />
+   482→              </div>
+   483→              <div className="space-y-2">
+   484→                <Label htmlFor="profile-email">Email</Label>
+   485→                <Input
+   486→                  id="profile-email"
+   487→                  value={user?.email || ''}
+   488→                  readOnly
+   489→                  disabled
+   490→                  className="rounded-xl bg-background/20"
+   491→                />
+   492→                <p className="text-[11px] text-muted-foreground">
+   493→                  Email cannot be changed here.
+   494→                </p>
+   495→              </div>
+   496→            </div>
+   497→
+   498→            <div className="mt-6 flex items-center justify-end gap-2">
+   499→              <Button variant="outline" className="rounded-xl" onClick={load}>
+   500→                Reset
+   501→              </Button>
+   502→              <Button
+   503→                onClick={saveProfile}
+   504→                className="rounded-xl grad-primary text-white glow-primary"
+   505→              >
+   506→                <Save className="w-4 h-4 mr-2" />
+   507→                Save changes
+   508→              </Button>
+   509→            </div>
+   510→          </motion.div>
+   511→        </TabsContent>
+   512→
+   513→        {/* APPEARANCE */}
+   514→        <TabsContent value="appearance" className="mt-0 space-y-6">
+   515→          <motion.div
+   516→            initial={{ opacity: 0, y: 10 }}
+   517→            animate={{ opacity: 1, y: 0 }}
+   518→            className="glass rounded-2xl p-6 sm:p-8"
+   519→          >
+   520→            <div className="flex items-center gap-2 mb-1">
+   521→              <Palette className="w-4 h-4 text-primary" />
+   522→              <h2 className="text-lg font-semibold">Theme</h2>
+   523→            </div>
+   524→            <p className="text-sm text-muted-foreground mb-4">
+   525→              Choose how the application looks. System matches your OS preference.
+   526→            </p>
+   527→            <div className="grid sm:grid-cols-3 gap-3">
+   528→              <ThemeCard
+   529→                value="light"
+   530→                active={theme === 'light'}
+   531→                onClick={() => handleThemeChange('light')}
+   532→                icon={Sun}
+   533→                label="Light"
+   534→                swatches={[
+   535→                  'oklch(0.99 0.005 280)',
+   536→                  'oklch(0.62 0.24 350)',
+   537→                  'oklch(0.96 0.01 280)',
+   538→                ]}
+   539→              />
+   540→              <ThemeCard
+   541→                value="dark"
+   542→                active={theme === 'dark'}
+   543→                onClick={() => handleThemeChange('dark')}
+   544→                icon={Moon}
+   545→                label="Dark"
+   546→                swatches={[
+   547→                  'oklch(0.14 0.02 280)',
+   548→                  'oklch(0.7 0.24 350)',
+   549→                  'oklch(0.24 0.025 280)',
+   550→                ]}
+   551→              />
+   552→              <ThemeCard
+   553→                value="system"
+   554→                active={theme === 'system'}
+   555→                onClick={() => handleThemeChange('system')}
+   556→                icon={Monitor}
+   557→                label="System"
+   558→                swatches={[
+   559→                  'linear-gradient(135deg, oklch(0.99 0.005 280) 0%, oklch(0.14 0.02 280) 100%)',
+   560→                  'oklch(0.7 0.24 350)',
+   561→                  'linear-gradient(135deg, oklch(0.96 0.01 280) 0%, oklch(0.24 0.025 280) 100%)',
+   562→                ]}
+   563→              />
+   564→            </div>
+   565→          </motion.div>
+   566→
+   567→          <motion.div
+   568→            initial={{ opacity: 0, y: 10 }}
+   569→            animate={{ opacity: 1, y: 0 }}
+   570→            transition={{ delay: 0.05 }}
+   571→            className="glass rounded-2xl p-6 sm:p-8"
+   572→          >
+   573→            <div className="flex items-center gap-2 mb-1">
+   574→              <Globe className="w-4 h-4 text-primary" />
+   575→              <h2 className="text-lg font-semibold">Language</h2>
+   576→            </div>
+   577→            <p className="text-sm text-muted-foreground mb-4">
+   578→              Select your preferred language. Changes save instantly.
+   579→            </p>
+   580→            <Select
+   581→              value={settings?.language || 'en'}
+   582→              onValueChange={handleLanguageChange}
+   583→            >
+   584→              <SelectTrigger className="w-full sm:w-[280px] rounded-xl bg-background/40">
+   585→                <SelectValue placeholder="Select language" />
+   586→              </SelectTrigger>
+   587→              <SelectContent>
+   588→                {LANGUAGES.map((l) => (
+   589→                  <SelectItem key={l.value} value={l.value}>
+   590→                    {l.label}
+   591→                  </SelectItem>
+   592→                ))}
+   593→              </SelectContent>
+   594→            </Select>
+   595→            <p className="text-[11px] text-muted-foreground mt-2">
+   596→              Note: UI translations are coming soon. Currently English.
+   597→            </p>
+   598→          </motion.div>
+   599→
+   600→          <motion.div
+   601→            initial={{ opacity: 0, y: 10 }}
+   602→            animate={{ opacity: 1, y: 0 }}
+   603→            transition={{ delay: 0.1 }}
+   604→            className="glass rounded-2xl p-6 sm:p-8"
+   605→          >
+   606→            <div className="flex items-center gap-2 mb-1">
+   607→              <Sparkles className="w-4 h-4 text-primary" />
+   608→              <h2 className="text-lg font-semibold">Accent</h2>
+   609→            </div>
+   610→            <p className="text-sm text-muted-foreground mb-4">
+   611→              Your brand gradient is used across buttons, highlights, and CTAs.
+   612→            </p>
+   613→            <div className="h-16 rounded-2xl grad-primary glow-primary flex items-center justify-center">
+   614→              <span className="text-white font-semibold text-sm tracking-wide">
+   615→                grad-primary · rose → violet
+   616→              </span>
+   617→            </div>
+   618→          </motion.div>
+   619→        </TabsContent>
+   620→
+   621→        {/* AI PROVIDER */}
+   622→        <TabsContent value="ai" className="mt-0 space-y-6">
+   623→          <motion.div
+   624→            initial={{ opacity: 0, y: 10 }}
+   625→            animate={{ opacity: 1, y: 0 }}
+   626→            className="glass rounded-2xl p-6 sm:p-8"
+   627→          >
+   628→            <div className="flex items-center gap-2 mb-1">
+   629→              <Bot className="w-4 h-4 text-primary" />
+   630→              <h2 className="text-lg font-semibold">AI Provider</h2>
+   631→            </div>
+   632→            <p className="text-sm text-muted-foreground mb-5">
+   633→              Choose the AI provider used for analysis, recommendations, and
+   634→              script generation.
+   635→            </p>
+   636→
+   637→            <div className="grid sm:grid-cols-2 gap-3 mb-6">
+   638→              <button
+   639→                onClick={() => setAiProvider('gemini')}
+   640→                className={`glass rounded-2xl p-4 text-left transition-all lift ${
+   641→                  aiProvider === 'gemini'
+   642→                    ? 'ring-2 ring-primary glow-primary'
+   643→                    : 'hover:ring-1 hover:ring-primary/40'
+   644→                }`}
+   645→              >
+   646→                <div className="flex items-start justify-between mb-2">
+   647→                  <div className="w-10 h-10 rounded-xl grad-cool flex items-center justify-center">
+   648→                    <Sparkles className="w-5 h-5 text-white" />
+   649→                  </div>
+   650→                  {aiProvider === 'gemini' && (
+   651→                    <div className="w-5 h-5 rounded-full grad-primary flex items-center justify-center">
+   652→                      <Check className="w-3 h-3 text-white" />
+   653→                    </div>
+   654→                  )}
+   655→                </div>
+   656→                <p className="font-semibold">Google Gemini</p>
+   657→                <p className="text-xs text-muted-foreground mt-1">
+   658→                  Free tier · Gemini 1.5 Flash · 15 RPM
+   659→                </p>
+   660→              </button>
+   661→
+   662→              <button
+   663→                onClick={() => setAiProvider('openrouter')}
+   664→                className={`glass rounded-2xl p-4 text-left transition-all lift ${
+   665→                  aiProvider === 'openrouter'
+   666→                    ? 'ring-2 ring-primary glow-primary'
+   667→                    : 'hover:ring-1 hover:ring-primary/40'
+   668→                }`}
+   669→              >
+   670→                <div className="flex items-start justify-between mb-2">
+   671→                  <div className="w-10 h-10 rounded-xl grad-warm flex items-center justify-center">
+   672→                    <Zap className="w-5 h-5 text-white" />
+   673→                  </div>
+   674→                  {aiProvider === 'openrouter' && (
+   675→                    <div className="w-5 h-5 rounded-full grad-primary flex items-center justify-center">
+   676→                      <Check className="w-3 h-3 text-white" />
+   677→                    </div>
+   678→                  )}
+   679→                </div>
+   680→                <p className="font-semibold">OpenRouter</p>
+   681→                <p className="text-xs text-muted-foreground mt-1">
+   682→                  Multi-model · Claude, GPT, Llama, and more
+   683→                </p>
+   684→              </button>
+   685→            </div>
+   686→
+   687→            <div className="space-y-2 mb-4">
+   688→              <Label htmlFor="api-key">
+   689→                {aiProvider === 'gemini' ? 'Gemini API Key' : 'OpenRouter API Key'}
+   690→              </Label>
+   691→              <div className="relative">
+   692→                <Input
+   693→                  id="api-key"
+   694→                  type={showKey ? 'text' : 'password'}
+   695→                  value={apiKey}
+   696→                  onChange={(e) => setApiKey(e.target.value)}
+   697→                  placeholder={
+   698→                    aiProvider === 'gemini'
+   699→                      ? 'Enter your Gemini API key'
+   700→                      : 'Enter your OpenRouter API key'
+   701→                  }
+   702→                  className="rounded-xl bg-background/40 pr-10 font-mono text-sm"
+   703→                />
+   704→                <button
+   705→                  type="button"
+   706→                  onClick={() => setShowKey((s) => !s)}
+   707→                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg hover:bg-primary/15 flex items-center justify-center text-muted-foreground hover:text-primary"
+   708→                >
+   709→                  {showKey ? (
+   710→                    <EyeOff className="w-3.5 h-3.5" />
+   711→                  ) : (
+   712→                    <Eye className="w-3.5 h-3.5" />
+   713→                  )}
+   714→                </button>
+   715→              </div>
+   716→              <p className="text-[11px] text-muted-foreground">
+   717→                Your key is stored securely and never shared. Get a free Gemini
+   718→                API key at{' '}
+   719→                <a
+   720→                  href="https://aistudio.google.com/app/apikey"
+   721→                  target="_blank"
+   722→                  rel="noreferrer"
+   723→                  className="text-primary hover:underline"
+   724→                >
+   725→                  aistudio.google.com
+   726→                </a>
+   727→                .
+   728→              </p>
+   729→            </div>
+   730→
+   731→            <div className="flex flex-wrap items-center gap-2 justify-end">
+   732→              <Button
+   733→                variant="outline"
+   734→                onClick={testConnection}
+   735→                disabled={testing}
+   736→                className="rounded-xl"
+   737→              >
+   738→                {testing ? (
+   739→                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   740→                ) : (
+   741→                  <PlugZap className="w-4 h-4 mr-2" />
+   742→                )}
+   743→                {testing ? 'Testing…' : 'Test Connection'}
+   744→              </Button>
+   745→              <Button
+   746→                onClick={saveAi}
+   747→                disabled={savingAi}
+   748→                className="rounded-xl grad-primary text-white glow-primary"
+   749→              >
+   750→                {savingAi ? (
+   751→                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   752→                ) : (
+   753→                  <Save className="w-4 h-4 mr-2" />
+   754→                )}
+   755→                Save
+   756→              </Button>
+   757→            </div>
+   758→          </motion.div>
+   759→
+   760→          <motion.div
+   761→            initial={{ opacity: 0, y: 10 }}
+   762→            animate={{ opacity: 1, y: 0 }}
+   763→            transition={{ delay: 0.05 }}
+   764→            className="glass rounded-2xl p-6"
+   765→          >
+   766→            <div className="flex items-start gap-3">
+   767→              <div className="w-10 h-10 rounded-xl grad-cool flex items-center justify-center shrink-0">
+   768→                <Info className="w-5 h-5 text-white" />
+   769→              </div>
+   770→              <div>
+   771→                <h3 className="font-semibold mb-1">About the free tier</h3>
+   772→                <p className="text-sm text-muted-foreground leading-relaxed">
+   773→                  Gemini&apos;s free tier includes 15 requests per minute and 1,500
+   774→                  requests per day using Gemini 1.5 Flash — more than enough for
+   775→                  daily channel analysis, recommendations, and script drafting.
+   776→                  Upgrade to a paid plan for higher limits and Gemini 1.5 Pro.
+   777→                </p>
+   778→              </div>
+   779→            </div>
+   780→          </motion.div>
+   781→        </TabsContent>
+   782→
+   783→        {/* NOTIFICATIONS */}
+   784→        <TabsContent value="notifications" className="mt-0 space-y-6">
+   785→          <motion.div
+   786→            initial={{ opacity: 0, y: 10 }}
+   787→            animate={{ opacity: 1, y: 0 }}
+   788→          >
+   789→            <div className="flex items-center gap-2 mb-4">
+   790→              <BellRing className="w-4 h-4 text-primary" />
+   791→              <h2 className="text-lg font-semibold">Notification Preferences</h2>
+   792→            </div>
+   793→            <div className="grid sm:grid-cols-2 gap-3">
+   794→              <NotifToggle
+   795→                id="emailNotifications"
+   796→                label="Email notifications"
+   797→                description="Receive updates via email"
+   798→                icon={Mail}
+   799→                color="grad-primary"
+   800→                value={!!settings?.emailNotifications}
+   801→                onChange={(v) =>
+   802→                  setSettings((s) =>
+   803→                    s ? { ...s, emailNotifications: v } : s
+   804→                  )
+   805→                }
+   806→              />
+   807→              <NotifToggle
+   808→                id="pushNotifications"
+   809→                label="Push notifications"
+   810→                description="Browser & device push alerts"
+   811→                icon={Bell}
+   812→                color="grad-cool"
+   813→                value={!!settings?.pushNotifications}
+   814→                onChange={(v) =>
+   815→                  setSettings((s) =>
+   816→                    s ? { ...s, pushNotifications: v } : s
+   817→                  )
+   818→                }
+   819→              />
+   820→              <NotifToggle
+   821→                id="uploadReminders"
+   822→                label="Upload reminders"
+   823→                description="Remind me to keep a schedule"
+   824→                icon={Upload}
+   825→                color="grad-cool"
+   826→                value={!!settings?.uploadReminders}
+   827→                onChange={(v) =>
+   828→                  setSettings((s) => (s ? { ...s, uploadReminders: v } : s))
+   829→                }
+   830→              />
+   831→              <NotifToggle
+   832→                id="weeklyReports"
+   833→                label="Weekly reports"
+   834→                description="Performance summary every Monday"
+   835→                icon={FileBarChart}
+   836→                color="grad-success"
+   837→                value={!!settings?.weeklyReports}
+   838→                onChange={(v) =>
+   839→                  setSettings((s) => (s ? { ...s, weeklyReports: v } : s))
+   840→                }
+   841→              />
+   842→              <NotifToggle
+   843→                id="monthlyReports"
+   844→                label="Monthly reports"
+   845→                description="Deep-dive analytics monthly"
+   846→                icon={Calendar}
+   847→                color="grad-warm"
+   848→                value={!!settings?.monthlyReports}
+   849→                onChange={(v) =>
+   850→                  setSettings((s) => (s ? { ...s, monthlyReports: v } : s))
+   851→                }
+   852→              />
+   853→              <NotifToggle
+   854→                id="trendingAlerts"
+   855→                label="Trending alerts"
+   856→                description="Notify on trending topics"
+   857→                icon={Flame}
+   858→                color="grad-warm"
+   859→                value={!!settings?.trendingAlerts}
+   860→                onChange={(v) =>
+   861→                  setSettings((s) => (s ? { ...s, trendingAlerts: v } : s))
+   862→                }
+   863→              />
+   864→            </div>
+   865→          </motion.div>
+   866→        </TabsContent>
+   867→
+   868→        {/* CONNECTED ACCOUNTS */}
+   869→        <TabsContent value="accounts" className="mt-0 space-y-6">
+   870→          <motion.div
+   871→            initial={{ opacity: 0, y: 10 }}
+   872→            animate={{ opacity: 1, y: 0 }}
+   873→            className="space-y-4"
+   874→          >
+   875→            <div className="flex items-center gap-2 mb-2">
+   876→              <Link2 className="w-4 h-4 text-primary" />
+   877→              <h2 className="text-lg font-semibold">Connected Accounts</h2>
+   878→            </div>
+   879→
+   880→            {/* YouTube */}
+   881→            <div className="glass rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 lift">
+   882→              <div className="flex items-center gap-4 min-w-0">
+   883→                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shrink-0">
+   884→                  <Youtube className="w-6 h-6 text-white" />
+   885→                </div>
+   886→                <div className="min-w-0">
+   887→                  <div className="flex items-center gap-2 flex-wrap">
+   888→                    <p className="font-semibold">YouTube</p>
+   889→                    {ytConnected ? (
+   890→                      <Badge
+   891→                        variant="outline"
+   892→                        className="text-emerald-400 border-emerald-500/30 text-[10px]"
+   893→                      >
+   894→                        <CircleDot className="w-3 h-3 mr-1" />
+   895→                        Connected
+   896→                      </Badge>
+   897→                    ) : (
+   898→                      <Badge variant="outline" className="text-[10px]">
+   899→                        Not connected
+   900→                      </Badge>
+   901→                    )}
+   902→                  </div>
+   903→                  <p className="text-sm text-muted-foreground">
+   904→                    {channels.length > 0
+   905→                      ? `${channels.length} channel${channels.length === 1 ? '' : 's'} linked`
+   906→                      : 'Connect to import your channels and videos'}
+   907→                  </p>
+   908→                </div>
+   909→              </div>
+   910→              {ytConnected ? (
+   911→                <Button
+   912→                  variant="outline"
+   913→                  onClick={disconnectYouTube}
+   914→                  className="rounded-xl shrink-0"
+   915→                >
+   916→                  Disconnect
+   917→                </Button>
+   918→              ) : (
+   919→                <Button
+   920→                  onClick={connectYouTube}
+   921→                  className="grad-primary text-white rounded-xl glow-primary shrink-0"
+   922→                >
+   923→                  <Plug className="w-4 h-4 mr-2" />
+   924→                  Connect
+   925→                </Button>
+   926→              )}
+   927→            </div>
+   928→
+   929→            {/* Google */}
+   930→            <div className="glass rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 lift">
+   931→              <div className="flex items-center gap-4 min-w-0">
+   932→                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-green-500 to-yellow-500 flex items-center justify-center shrink-0">
+   933→                  <Mail className="w-6 h-6 text-white" />
+   934→                </div>
+   935→                <div className="min-w-0">
+   936→                  <div className="flex items-center gap-2 flex-wrap">
+   937→                    <p className="font-semibold">Google Account</p>
+   938→                    <Badge
+   939→                      variant="outline"
+   940→                      className="text-emerald-400 border-emerald-500/30 text-[10px]"
+   941→                    >
+   942→                      <CircleDot className="w-3 h-3 mr-1" />
+   943→                      Connected
+   944→                    </Badge>
+   945→                  </div>
+   946→                  <p className="text-sm text-muted-foreground truncate">
+   947→                    {user?.email || '—'}
+   948→                  </p>
+   949→                </div>
+   950→              </div>
+   951→              <Button
+   952→                variant="outline"
+   953→                onClick={() => toast.info('Google account settings')}
+   954→                className="rounded-xl shrink-0"
+   955→              >
+   956→                Manage
+   957→              </Button>
+   958→            </div>
+   959→
+   960→            {/* Coming soon placeholders */}
+   961→            <div className="grid sm:grid-cols-3 gap-3 pt-2">
+   962→              {[
+   963→                { name: 'TikTok', icon: Music, color: 'from-slate-700 to-slate-900' },
+   964→                { name: 'Instagram', icon: Camera, color: 'from-fuchsia-500 to-amber-500' },
+   965→                { name: 'X (Twitter)', icon: Send, color: 'from-slate-800 to-black' },
+   966→              ].map((p) => (
+   967→                <div
+   968→                  key={p.name}
+   969→                  className="glass rounded-2xl p-4 opacity-60 cursor-not-allowed"
+   970→                >
+   971→                  <div className="flex items-center gap-3 mb-2">
+   972→                    <div
+   973→                      className={`w-9 h-9 rounded-xl bg-gradient-to-br ${p.color} flex items-center justify-center`}
+   974→                    >
+   975→                      <p.icon className="w-4 h-4 text-white" />
+   976→                    </div>
+   977→                    <p className="font-semibold text-sm">{p.name}</p>
+   978→                  </div>
+   979→                  <Badge variant="outline" className="text-[10px]">
+   980→                    Coming soon
+   981→                  </Badge>
+   982→                </div>
+   983→              ))}
+   984→            </div>
+   985→          </motion.div>
+   986→        </TabsContent>
+   987→
+   988→        {/* SECURITY */}
+   989→        <TabsContent value="security" className="mt-0 space-y-6">
+   990→          <motion.div
+   991→            initial={{ opacity: 0, y: 10 }}
+   992→            animate={{ opacity: 1, y: 0 }}
+   993→            className="glass rounded-2xl p-6 sm:p-8"
+   994→          >
+   995→            <div className="flex items-center gap-2 mb-1">
+   996→              <Lock className="w-4 h-4 text-primary" />
+   997→              <h2 className="text-lg font-semibold">Change Password</h2>
+   998→            </div>
+   999→            <p className="text-sm text-muted-foreground mb-5">
+  1000→              Use a strong, unique password of at least 8 characters.
+  1001→            </p>
+  1002→            <div className="grid sm:grid-cols-3 gap-4">
+  1003→              <div className="space-y-2">
+  1004→                <Label htmlFor="cur-pwd">Current password</Label>
+  1005→                <Input
+  1006→                  id="cur-pwd"
+  1007→                  type="password"
+  1008→                  value={currentPwd}
+  1009→                  onChange={(e) => setCurrentPwd(e.target.value)}
+  1010→                  className="rounded-xl bg-background/40"
+  1011→                  placeholder="••••••••"
+  1012→                />
+  1013→              </div>
+  1014→              <div className="space-y-2">
+  1015→                <Label htmlFor="new-pwd">New password</Label>
+  1016→                <Input
+  1017→                  id="new-pwd"
+  1018→                  type="password"
+  1019→                  value={newPwd}
+  1020→                  onChange={(e) => setNewPwd(e.target.value)}
+  1021→                  className="rounded-xl bg-background/40"
+  1022→                  placeholder="••••••••"
+  1023→                />
+  1024→              </div>
+  1025→              <div className="space-y-2">
+  1026→                <Label htmlFor="confirm-pwd">Confirm new</Label>
+  1027→                <Input
+  1028→                  id="confirm-pwd"
+  1029→                  type="password"
+  1030→                  value={confirmPwd}
+  1031→                  onChange={(e) => setConfirmPwd(e.target.value)}
+  1032→                  className="rounded-xl bg-background/40"
+  1033→                  placeholder="••••••••"
+  1034→                />
+  1035→              </div>
+  1036→            </div>
+  1037→            <div className="mt-5 flex justify-end">
+  1038→              <Button
+  1039→                onClick={changePassword}
+  1040→                className="rounded-xl grad-primary text-white glow-primary"
+  1041→              >
+  1042→                <KeyRound className="w-4 h-4 mr-2" />
+  1043→                Update password
+  1044→              </Button>
+  1045→            </div>
+  1046→          </motion.div>
+  1047→
+  1048→          <motion.div
+  1049→            initial={{ opacity: 0, y: 10 }}
+  1050→            animate={{ opacity: 1, y: 0 }}
+  1051→            transition={{ delay: 0.05 }}
+  1052→            className="glass rounded-2xl p-6 sm:p-8"
+  1053→          >
+  1054→            <div className="flex items-center justify-between mb-4">
+  1055→              <div className="flex items-center gap-2">
+  1056→                <Smartphone className="w-4 h-4 text-primary" />
+  1057→                <h2 className="text-lg font-semibold">Active Sessions</h2>
+  1058→              </div>
+  1059→              <Button
+  1060→                variant="outline"
+  1061→                onClick={signOutAll}
+  1062→                className="rounded-xl"
+  1063→              >
+  1064→                <LogOut className="w-4 h-4 mr-2" />
+  1065→                Sign out all devices
+  1066→              </Button>
+  1067→            </div>
+  1068→            <div className="space-y-2">
+  1069→              <div className="glass rounded-xl p-4 flex items-center justify-between border-l-4 border-l-emerald-500">
+  1070→                <div className="flex items-center gap-3 min-w-0">
+  1071→                  <div className="w-9 h-9 rounded-lg grad-success flex items-center justify-center shrink-0">
+  1072→                    <Monitor className="w-4 h-4 text-white" />
+  1073→                  </div>
+  1074→                  <div className="min-w-0">
+  1075→                    <div className="flex items-center gap-2">
+  1076→                      <p className="text-sm font-medium">This browser</p>
+  1077→                      <Badge
+  1078→                        variant="outline"
+  1079→                        className="text-emerald-400 border-emerald-500/30 text-[10px]"
+  1080→                      >
+  1081→                        Current
+  1082→                      </Badge>
+  1083→                    </div>
+  1084→                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+  1085→                      <Clock className="w-3 h-3" />
+  1086→                      Active now
+  1087→                    </p>
+  1088→                  </div>
+  1089→                </div>
+  1090→              </div>
+  1091→            </div>
+  1092→          </motion.div>
+  1093→
+  1094→          <motion.div
+  1095→            initial={{ opacity: 0, y: 10 }}
+  1096→            animate={{ opacity: 1, y: 0 }}
+  1097→            transition={{ delay: 0.1 }}
+  1098→            className="glass rounded-2xl p-6"
+  1099→          >
+  1100→            <div className="flex items-start gap-3">
+  1101→              <div className="w-10 h-10 rounded-xl grad-warm flex items-center justify-center shrink-0">
+  1102→                <Shield className="w-5 h-5 text-white" />
+  1103→              </div>
+  1104→              <div>
+  1105→                <h3 className="font-semibold mb-1">Role-Based Access Control</h3>
+  1106→                <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+  1107→                  Your account has the <RoleBadge role={user?.role || 'CREATOR'} />{' '}
+  1108→                  role. Roles determine which features and data you can access.
+  1109→                </p>
+  1110→                <div className="grid sm:grid-cols-2 gap-2 text-xs">
+  1111→                  <div className="flex items-center gap-2">
+  1112→                    <Check className="w-3 h-3 text-emerald-400" />
+  1113→                    <span><b>Admin</b> — full access, user management</span>
+  1114→                  </div>
+  1115→                  <div className="flex items-center gap-2">
+  1116→                    <Check className="w-3 h-3 text-emerald-400" />
+  1117→                    <span><b>Creator</b> — own channels, AI, content</span>
+  1118→                  </div>
+  1119→                  <div className="flex items-center gap-2">
+  1120→                    <Check className="w-3 h-3 text-emerald-400" />
+  1121→                    <span><b>Editor</b> — content editing, no billing</span>
+  1122→                  </div>
+  1123→                  <div className="flex items-center gap-2">
+  1124→                    <Check className="w-3 h-3 text-emerald-400" />
+  1125→                    <span><b>Viewer</b> — read-only analytics</span>
+  1126→                  </div>
+  1127→                </div>
+  1128→              </div>
+  1129→            </div>
+  1130→          </motion.div>
+  1131→        </TabsContent>
+  1132→      </Tabs>
+  1133→    </div>
+  1134→  )
+  1135→}
+  1136→

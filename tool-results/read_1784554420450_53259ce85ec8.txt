@@ -1,0 +1,712 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import {
+     6→  Users,
+     7→  Eye,
+     8→  Video,
+     9→  TrendingUp,
+    10→  Sparkles,
+    11→  ArrowUpRight,
+    12→  ArrowDownRight,
+    13→  CalendarClock,
+    14→  CheckCircle2,
+    15→  Circle,
+    16→  Lightbulb,
+    17→  Loader2,
+    18→  Zap,
+    19→  Target,
+    20→  Flame,
+    21→} from 'lucide-react'
+    22→import {
+    23→  Card,
+    24→  CardContent,
+    25→  CardHeader,
+    26→  CardTitle,
+    27→  CardDescription,
+    28→} from '@/components/ui/card'
+    29→import { Button } from '@/components/ui/button'
+    30→import { Badge } from '@/components/ui/badge'
+    31→import { Progress } from '@/components/ui/progress'
+    32→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    33→import {
+    34→  AreaChart,
+    35→  Area,
+    36→  ResponsiveContainer,
+    37→  Tooltip,
+    38→  XAxis,
+    39→  YAxis,
+    40→  CartesianGrid,
+    41→} from 'recharts'
+    42→import { apiFetch, formatNumber, timeAgo } from '@/lib/api-client'
+    43→import { useAppStore } from '@/lib/store'
+    44→
+    45→interface DashboardData {
+    46→  channels: Array<{
+    47→    id: string
+    48→    title: string
+    49→    subscriberCount: number
+    50→    videoCount: number
+    51→    viewCount: number
+    52→    healthScore: number
+    53→  }>
+    54→  recentVideos: Array<{
+    55→    id: string
+    56→    title: string
+    57→    viewCount: number
+    58→    likeCount: number
+    59→    isShort: boolean
+    60→    publishedAt: string
+    61→    channel: { title: string }
+    62→  }>
+    63→  tasks: Array<{
+    64→    id: string
+    65→    title: string
+    66→    status: string
+    67→    priority: string
+    68→    deadline: string | null
+    69→    completed: boolean
+    70→    project: { name: string; color: string } | null
+    71→  }>
+    72→  upcomingEvents: Array<{
+    73→    id: string
+    74→    title: string
+    75→    date: string
+    76→    type: string
+    77→    status: string
+    78→  }>
+    79→  pinnedNotes: Array<{
+    80→    id: string
+    81→    title: string
+    82→    content: string
+    83→    updatedAt: string
+    84→  }>
+    85→  unreadNotifications: number
+    86→  latestNotifications: Array<{
+    87→    id: string
+    88→    type: string
+    89→    title: string
+    90→    message: string
+    91→    createdAt: string
+    92→  }>
+    93→  projects: Array<{ id: string; name: string; color: string; status: string }>
+    94→  stats: {
+    95→    totalSubscribers: number
+    96→    totalViews: number
+    97→    totalVideos: number
+    98→    totalTasks: number
+    99→    completedTasks: number
+   100→  }
+   101→}
+   102→
+   103→const priorityColors: Record<string, string> = {
+   104→  urgent: 'bg-red-500/15 text-red-400 border-red-500/30',
+   105→  high: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+   106→  medium: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+   107→  low: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+   108→}
+   109→
+   110→const eventColors: Record<string, string> = {
+   111→  publish: 'bg-emerald-500',
+   112→  record: 'bg-fuchsia-500',
+   113→  edit: 'bg-sky-500',
+   114→  review: 'bg-amber-500',
+   115→  meeting: 'bg-violet-500',
+   116→}
+   117→
+   118→export function DashboardView() {
+   119→  const { navigate, setViewParams } = useAppStore()
+   120→  const [data, setData] = useState<DashboardData | null>(null)
+   121→  const [loading, setLoading] = useState(true)
+   122→
+   123→  useEffect(() => {
+   124→    apiFetch<DashboardData>('/api/dashboard')
+   125→      .then(setData)
+   126→      .catch(() => {})
+   127→      .finally(() => setLoading(false))
+   128→  }, [])
+   129→
+   130→  if (loading || !data) {
+   131→    return (
+   132→      <div className="p-6 space-y-6">
+   133→        <SkeletonHeader />
+   134→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+   135→          {Array.from({ length: 4 }).map((_, i) => (
+   136→            <div key={i} className="h-28 rounded-2xl glass shimmer" />
+   137→          ))}
+   138→        </div>
+   139→        <div className="grid lg:grid-cols-3 gap-4">
+   140→          <div className="lg:col-span-2 h-80 rounded-2xl glass shimmer" />
+   141→          <div className="h-80 rounded-2xl glass shimmer" />
+   142→        </div>
+   143→      </div>
+   144→    )
+   145→  }
+   146→
+   147→  const growthData = generateGrowthData(data.stats.totalSubscribers)
+   148→  const taskCompletion =
+   149→    data.stats.totalTasks > 0
+   150→      ? Math.round((data.stats.completedTasks / data.stats.totalTasks) * 100)
+   151→      : 0
+   152→
+   153→  const mainChannel = data.channels[0]
+   154→
+   155→  return (
+   156→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   157→      {/* Header */}
+   158→      <motion.div
+   159→        initial={{ opacity: 0, y: 10 }}
+   160→        animate={{ opacity: 1, y: 0 }}
+   161→        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+   162→      >
+   163→        <div>
+   164→          <div className="flex items-center gap-2 mb-1">
+   165→            <Sparkles className="w-4 h-4 text-primary" />
+   166→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   167→              Studio Overview
+   168→            </span>
+   169→          </div>
+   170→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   171→            Welcome back to your studio
+   172→          </h1>
+   173→          <p className="text-sm text-muted-foreground mt-1">
+   174→            Here&apos;s what&apos;s happening across your channels today.
+   175→          </p>
+   176→        </div>
+   177→        <div className="flex items-center gap-2">
+   178→          <Button variant="outline" onClick={() => navigate('analytics')} className="rounded-xl">
+   179→            <TrendingUp className="w-4 h-4 mr-1" /> View Analytics
+   180→          </Button>
+   181→          <Button
+   182→            onClick={() => navigate('script')}
+   183→            className="rounded-xl grad-primary text-white glow-primary"
+   184→          >
+   185→            <Zap className="w-4 h-4 mr-1" /> Generate Script
+   186→          </Button>
+   187→        </div>
+   188→      </motion.div>
+   189→
+   190→      {/* Stat cards */}
+   191→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+   192→        <StatCard
+   193→          icon={Users}
+   194→          label="Subscribers"
+   195→          value={formatNumber(data.stats.totalSubscribers)}
+   196→          change="+4.2%"
+   197→          up
+   198→          delay={0}
+   199→          gradient="grad-primary"
+   200→        />
+   201→        <StatCard
+   202→          icon={Eye}
+   203→          label="Total Views"
+   204→          value={formatNumber(data.stats.totalViews)}
+   205→          change="+12.8%"
+   206→          up
+   207→          delay={0.05}
+   208→          gradient="grad-cool"
+   209→        />
+   210→        <StatCard
+   211→          icon={Video}
+   212→          label="Videos"
+   213→          value={String(data.stats.totalVideos)}
+   214→          change="+3 this month"
+   215→          up
+   216→          delay={0.1}
+   217→          gradient="grad-success"
+   218→        />
+   219→        <StatCard
+   220→          icon={Target}
+   221→          label="Task Completion"
+   222→          value={`${taskCompletion}%`}
+   223→          change={`${data.stats.completedTasks}/${data.stats.totalTasks} done`}
+   224→          up={taskCompletion >= 50}
+   225→          delay={0.15}
+   226→          gradient="grad-warm"
+   227→        />
+   228→      </div>
+   229→
+   230→      {/* Main grid */}
+   231→      <div className="grid lg:grid-cols-3 gap-4">
+   232→        {/* Growth chart */}
+   233→        <Card className="lg:col-span-2 glass border-border/60 overflow-hidden">
+   234→          <CardHeader className="flex flex-row items-center justify-between pb-2">
+   235→            <div>
+   236→              <CardTitle className="text-base">Growth Trend</CardTitle>
+   237→              <CardDescription className="text-xs">
+   238→                Subscriber growth — last 8 months
+   239→              </CardDescription>
+   240→            </div>
+   241→            <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
+   242→              <ArrowUpRight className="w-3 h-3 mr-1" /> +18.4%
+   243→            </Badge>
+   244→          </CardHeader>
+   245→          <CardContent className="pt-2">
+   246→            <div className="h-64">
+   247→              <ResponsiveContainer width="100%" height="100%">
+   248→                <AreaChart data={growthData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+   249→                  <defs>
+   250→                    <linearGradient id="colorGrowth" x1="0" y1="0" x2="0" y2="1">
+   251→                      <stop offset="5%" stopColor="oklch(0.7 0.24 350)" stopOpacity={0.5} />
+   252→                      <stop offset="95%" stopColor="oklch(0.7 0.24 350)" stopOpacity={0} />
+   253→                    </linearGradient>
+   254→                  </defs>
+   255→                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.5 0.02 280 / 0.1)" />
+   256→                  <XAxis
+   257→                    dataKey="month"
+   258→                    stroke="oklch(0.6 0.02 280 / 0.6)"
+   259→                    fontSize={11}
+   260→                    tickLine={false}
+   261→                    axisLine={false}
+   262→                  />
+   263→                  <YAxis
+   264→                    stroke="oklch(0.6 0.02 280 / 0.6)"
+   265→                    fontSize={11}
+   266→                    tickLine={false}
+   267→                    axisLine={false}
+   268→                    tickFormatter={(v) => formatNumber(v)}
+   269→                  />
+   270→                  <Tooltip
+   271→                    contentStyle={{
+   272→                      background: 'var(--glass-bg)',
+   273→                      border: '1px solid var(--glass-border)',
+   274→                      borderRadius: 12,
+   275→                      backdropFilter: 'blur(20px)',
+   276→                    }}
+   277→                  />
+   278→                  <Area
+   279→                    type="monotone"
+   280→                    dataKey="subscribers"
+   281→                    stroke="oklch(0.7 0.24 350)"
+   282→                    strokeWidth={2.5}
+   283→                    fill="url(#colorGrowth)"
+   284→                  />
+   285→                </AreaChart>
+   286→              </ResponsiveContainer>
+   287→            </div>
+   288→          </CardContent>
+   289→        </Card>
+   290→
+   291→        {/* Channel health */}
+   292→        <Card className="glass border-border/60">
+   293→          <CardHeader className="pb-2">
+   294→            <CardTitle className="text-base flex items-center gap-2">
+   295→              <Flame className="w-4 h-4 text-orange-400" /> Channel Health
+   296→            </CardTitle>
+   297→            <CardDescription className="text-xs">{mainChannel?.title}</CardDescription>
+   298→          </CardHeader>
+   299→          <CardContent className="space-y-4">
+   300→            <HealthRing score={mainChannel?.healthScore ?? 0} />
+   301→            <div className="space-y-2">
+   302→              {[
+   303→                { label: 'SEO Quality', value: 82, color: 'bg-emerald-500' },
+   304→                { label: 'Engagement', value: 74, color: 'bg-fuchsia-500' },
+   305→                { label: 'Consistency', value: 68, color: 'bg-sky-500' },
+   306→                { label: 'Retention', value: 79, color: 'bg-amber-500' },
+   307→              ].map((m) => (
+   308→                <div key={m.label}>
+   309→                  <div className="flex justify-between text-xs mb-1">
+   310→                    <span className="text-muted-foreground">{m.label}</span>
+   311→                    <span className="font-semibold">{m.value}%</span>
+   312→                  </div>
+   313→                  <Progress value={m.value} className={`h-1.5 [&>div]:${m.color}`} />
+   314→                </div>
+   315→              ))}
+   316→            </div>
+   317→            <Button
+   318→              variant="outline"
+   319→              size="sm"
+   320→              className="w-full rounded-xl"
+   321→              onClick={() => navigate('analysis')}
+   322→            >
+   323→              <Sparkles className="w-3.5 h-3.5 mr-1 text-primary" /> Run AI Analysis
+   324→            </Button>
+   325→          </CardContent>
+   326→        </Card>
+   327→      </div>
+   328→
+   329→      {/* Tasks + events + notifications */}
+   330→      <div className="grid lg:grid-cols-3 gap-4">
+   331→        {/* Today's tasks */}
+   332→        <Card className="glass border-border/60">
+   333→          <CardHeader className="flex flex-row items-center justify-between pb-3">
+   334→            <CardTitle className="text-base">Today&apos;s Tasks</CardTitle>
+   335→            <Button
+   336→              variant="ghost"
+   337→              size="sm"
+   338→              className="text-xs h-7"
+   339→              onClick={() => navigate('workflow')}
+   340→            >
+   341→              View board
+   342→            </Button>
+   343→          </CardHeader>
+   344→          <CardContent className="space-y-2 max-h-80 overflow-y-auto scroll-styled">
+   345→            {data.tasks.slice(0, 6).map((t) => (
+   346→              <div
+   347→                key={t.id}
+   348→                className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-accent/40 transition-colors cursor-pointer group"
+   349→                onClick={() => navigate('workflow')}
+   350→              >
+   351→                {t.completed ? (
+   352→                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+   353→                ) : (
+   354→                  <Circle className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 group-hover:text-primary transition-colors" />
+   355→                )}
+   356→                <div className="flex-1 min-w-0">
+   357→                  <p
+   358→                    className={`text-sm font-medium leading-tight line-clamp-1 ${
+   359→                      t.completed ? 'line-through text-muted-foreground' : ''
+   360→                    }`}
+   361→                  >
+   362→                    {t.title}
+   363→                  </p>
+   364→                  <div className="flex items-center gap-2 mt-1">
+   365→                    <Badge
+   366→                      variant="outline"
+   367→                      className={`text-[9px] px-1.5 capitalize ${priorityColors[t.priority] || ''}`}
+   368→                    >
+   369→                      {t.priority}
+   370→                    </Badge>
+   371→                    {t.project && (
+   372→                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+   373→                        <span
+   374→                          className="w-2 h-2 rounded-full"
+   375→                          style={{ background: t.project.color }}
+   376→                        />
+   377→                        {t.project.name}
+   378→                      </span>
+   379→                    )}
+   380→                  </div>
+   381→                </div>
+   382→              </div>
+   383→            ))}
+   384→            {data.tasks.length === 0 && (
+   385→              <p className="text-sm text-muted-foreground text-center py-6">
+   386→                No tasks yet. Create one in the workflow board.
+   387→              </p>
+   388→            )}
+   389→          </CardContent>
+   390→        </Card>
+   391→
+   392→        {/* Upcoming events */}
+   393→        <Card className="glass border-border/60">
+   394→          <CardHeader className="flex flex-row items-center justify-between pb-3">
+   395→            <CardTitle className="text-base flex items-center gap-2">
+   396→              <CalendarClock className="w-4 h-4 text-sky-400" /> Upcoming
+   397→            </CardTitle>
+   398→            <Button
+   399→              variant="ghost"
+   400→              size="sm"
+   401→              className="text-xs h-7"
+   402→              onClick={() => navigate('planner')}
+   403→            >
+   404→              Calendar
+   405→            </Button>
+   406→          </CardHeader>
+   407→          <CardContent className="space-y-2">
+   408→            {data.upcomingEvents.slice(0, 5).map((e) => {
+   409→              const d = new Date(e.date)
+   410→              return (
+   411→                <div
+   412→                  key={e.id}
+   413→                  className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-accent/40 transition-colors"
+   414→                >
+   415→                  <div className="flex flex-col items-center justify-center w-12 shrink-0">
+   416→                    <span className="text-[10px] uppercase text-muted-foreground">
+   417→                      {d.toLocaleString('default', { month: 'short' })}
+   418→                    </span>
+   419→                    <span className="text-lg font-bold leading-none">{d.getDate()}</span>
+   420→                  </div>
+   421→                  <div className={`w-1 h-10 rounded-full ${eventColors[e.type] || 'bg-slate-500'}`} />
+   422→                  <div className="flex-1 min-w-0">
+   423→                    <p className="text-sm font-medium line-clamp-1">{e.title}</p>
+   424→                    <p className="text-xs text-muted-foreground capitalize">
+   425→                      {e.type} · {d.toLocaleTimeString('default', { hour: 'numeric', minute: '2-digit' })}
+   426→                    </p>
+   427→                  </div>
+   428→                </div>
+   429→              )
+   430→            })}
+   431→            {data.upcomingEvents.length === 0 && (
+   432→              <p className="text-sm text-muted-foreground text-center py-6">
+   433→                No upcoming events.
+   434→              </p>
+   435→            )}
+   436→          </CardContent>
+   437→        </Card>
+   438→
+   439→        {/* Notifications + AI recs */}
+   440→        <div className="space-y-4">
+   441→          <Card className="glass border-border/60">
+   442→            <CardHeader className="flex flex-row items-center justify-between pb-3">
+   443→              <CardTitle className="text-base flex items-center gap-2">
+   444→                <Lightbulb className="w-4 h-4 text-amber-400" /> AI Insights
+   445→              </CardTitle>
+   446→            </CardHeader>
+   447→            <CardContent className="space-y-2">
+   448→              <div className="p-3 rounded-xl grad-primary text-white">
+   449→                <p className="text-xs font-semibold uppercase tracking-wide opacity-80 mb-1">
+   450→                  Trending Now
+   451→                </p>
+   452→                <p className="text-sm font-medium leading-tight">
+   453→                  &ldquo;AI video editing&rdquo; is trending in your niche — create a video this week for +30% reach.
+   454→                </p>
+   455→                <Button
+   456→                  size="sm"
+   457→                  variant="secondary"
+   458→                  className="mt-2 h-7 bg-white/20 hover:bg-white/30 text-white"
+   459→                  onClick={() => navigate('recommendations')}
+   460→                >
+   461→                  See recommendations
+   462→                </Button>
+   463→              </div>
+   464→            </CardContent>
+   465→          </Card>
+   466→
+   467→          <Card className="glass border-border/60">
+   468→            <CardHeader className="pb-3">
+   469→              <CardTitle className="text-base">Recent Activity</CardTitle>
+   470→            </CardHeader>
+   471→            <CardContent className="space-y-2 max-h-44 overflow-y-auto scroll-styled">
+   472→              {data.latestNotifications.slice(0, 4).map((n) => (
+   473→                <div key={n.id} className="flex gap-2 text-xs">
+   474→                  <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mt-1.5" />
+   475→                  <div className="min-w-0">
+   476→                    <p className="font-medium line-clamp-1">{n.title}</p>
+   477→                    <p className="text-muted-foreground line-clamp-1">{n.message}</p>
+   478→                    <p className="text-muted-foreground/60 text-[10px] mt-0.5">
+   479→                      {timeAgo(n.createdAt)}
+   480→                    </p>
+   481→                  </div>
+   482→                </div>
+   483→              ))}
+   484→            </CardContent>
+   485→          </Card>
+   486→        </div>
+   487→      </div>
+   488→
+   489→      {/* Recent videos + pinned notes */}
+   490→      <div className="grid lg:grid-cols-3 gap-4">
+   491→        <Card className="lg:col-span-2 glass border-border/60">
+   492→          <CardHeader className="flex flex-row items-center justify-between pb-3">
+   493→            <CardTitle className="text-base">Recent Videos</CardTitle>
+   494→            <Button
+   495→              variant="ghost"
+   496→              size="sm"
+   497→              className="text-xs h-7"
+   498→              onClick={() => navigate('channels')}
+   499→            >
+   500→              View all
+   501→            </Button>
+   502→          </CardHeader>
+   503→          <CardContent className="space-y-2">
+   504→            {data.recentVideos.map((v) => (
+   505→              <div
+   506→                key={v.id}
+   507→                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-accent/40 transition-colors group"
+   508→              >
+   509→                <div className="relative w-20 h-12 rounded-lg grad-primary flex items-center justify-center shrink-0 overflow-hidden">
+   510→                  <Video className="w-4 h-4 text-white/80" />
+   511→                  {v.isShort && (
+   512→                    <Badge className="absolute top-1 right-1 h-3.5 px-1 text-[8px] bg-red-500">
+   513→                      SHORT
+   514→                    </Badge>
+   515→                  )}
+   516→                </div>
+   517→                <div className="flex-1 min-w-0">
+   518→                  <p className="text-sm font-medium line-clamp-1 group-hover:text-primary transition-colors">
+   519→                    {v.title}
+   520→                  </p>
+   521→                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+   522→                    <span className="flex items-center gap-1">
+   523→                      <Eye className="w-3 h-3" /> {formatNumber(v.viewCount)}
+   524→                    </span>
+   525→                    <span className="flex items-center gap-1">
+   526→                      <TrendingUp className="w-3 h-3" /> {formatNumber(v.likeCount)} likes
+   527→                    </span>
+   528→                    <span className="hidden sm:inline">{timeAgo(v.publishedAt)}</span>
+   529→                  </div>
+   530→                </div>
+   531→              </div>
+   532→            ))}
+   533→          </CardContent>
+   534→        </Card>
+   535→
+   536→        <Card className="glass border-border/60">
+   537→          <CardHeader className="flex flex-row items-center justify-between pb-3">
+   538→            <CardTitle className="text-base">Pinned Notes</CardTitle>
+   539→            <Button
+   540→              variant="ghost"
+   541→              size="sm"
+   542→              className="text-xs h-7"
+   543→              onClick={() => navigate('notes')}
+   544→            >
+   545→              All notes
+   546→            </Button>
+   547→          </CardHeader>
+   548→          <CardContent className="space-y-2">
+   549→            {data.pinnedNotes.map((n) => (
+   550→              <div
+   551→                key={n.id}
+   552→                onClick={() => {
+   553→                  setViewParams({ noteId: n.id })
+   554→                  navigate('notes')
+   555→                }}
+   556→                className="p-3 rounded-xl bg-accent/30 hover:bg-accent/50 transition-colors cursor-pointer"
+   557→              >
+   558→                <p className="text-sm font-semibold line-clamp-1">{n.title}</p>
+   559→                <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+   560→                  {n.content.replace(/[#*`>-]/g, '').trim()}
+   561→                </p>
+   562→              </div>
+   563→            ))}
+   564→            {data.pinnedNotes.length === 0 && (
+   565→              <p className="text-sm text-muted-foreground text-center py-6">
+   566→                No pinned notes.
+   567→              </p>
+   568→            )}
+   569→          </CardContent>
+   570→        </Card>
+   571→      </div>
+   572→
+   573→      {/* Active projects */}
+   574→      <Card className="glass border-border/60">
+   575→        <CardHeader className="flex flex-row items-center justify-between pb-3">
+   576→          <CardTitle className="text-base">Active Projects</CardTitle>
+   577→          <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => navigate('workflow')}>
+   578→            Manage
+   579→          </Button>
+   580→        </CardHeader>
+   581→        <CardContent>
+   582→          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+   583→            {data.projects.map((p) => (
+   584→              <div
+   585→                key={p.id}
+   586→                className="relative overflow-hidden p-4 rounded-2xl bg-accent/30 hover:bg-accent/50 transition-colors cursor-pointer lift"
+   587→              >
+   588→                <div
+   589→                  className="absolute top-0 left-0 right-0 h-1"
+   590→                  style={{ background: p.color }}
+   591→                />
+   592→                <div className="flex items-start justify-between">
+   593→                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: p.color + '20' }}>
+   594→                    <Target className="w-5 h-5" style={{ color: p.color }} />
+   595→                  </div>
+   596→                  <Badge variant="outline" className="text-[10px] capitalize">
+   597→                    {p.status}
+   598→                  </Badge>
+   599→                </div>
+   600→                <p className="font-semibold mt-3">{p.name}</p>
+   601→              </div>
+   602→            ))}
+   603→          </div>
+   604→        </CardContent>
+   605→      </Card>
+   606→    </div>
+   607→  )
+   608→}
+   609→
+   610→function StatCard({
+   611→  icon: Icon,
+   612→  label,
+   613→  value,
+   614→  change,
+   615→  up,
+   616→  delay,
+   617→  gradient,
+   618→}: {
+   619→  icon: typeof Users
+   620→  label: string
+   621→  value: string
+   622→  change: string
+   623→  up?: boolean
+   624→  delay: number
+   625→  gradient: string
+   626→}) {
+   627→  return (
+   628→    <motion.div
+   629→      initial={{ opacity: 0, y: 16 }}
+   630→      animate={{ opacity: 1, y: 0 }}
+   631→      transition={{ delay, duration: 0.4 }}
+   632→      className="relative overflow-hidden glass rounded-2xl p-4 card-3d"
+   633→    >
+   634→      <div className={`absolute -right-4 -top-4 w-20 h-20 rounded-full ${gradient} opacity-20 blur-2xl`} />
+   635→      <div className="flex items-start justify-between">
+   636→        <div className={`w-10 h-10 rounded-xl ${gradient} flex items-center justify-center shadow-lg`}>
+   637→          <Icon className="w-5 h-5 text-white" />
+   638→        </div>
+   639→        <span
+   640→          className={`text-xs font-semibold flex items-center gap-0.5 ${
+   641→            up ? 'text-emerald-400' : 'text-red-400'
+   642→          }`}
+   643→        >
+   644→          {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+   645→        </span>
+   646→      </div>
+   647→      <p className="text-2xl font-bold mt-3">{value}</p>
+   648→      <p className="text-xs text-muted-foreground">{label}</p>
+   649→      <p className="text-[10px] text-muted-foreground/70 mt-1">{change}</p>
+   650→    </motion.div>
+   651→  )
+   652→}
+   653→
+   654→function HealthRing({ score }: { score: number }) {
+   655→  const radius = 52
+   656→  const circ = 2 * Math.PI * radius
+   657→  const offset = circ - (score / 100) * circ
+   658→  const color = score >= 75 ? 'oklch(0.72 0.18 160)' : score >= 50 ? 'oklch(0.78 0.18 70)' : 'oklch(0.65 0.25 20)'
+   659→  return (
+   660→    <div className="relative flex items-center justify-center py-2">
+   661→      <svg width="140" height="140" className="-rotate-90">
+   662→        <circle
+   663→          cx="70"
+   664→          cy="70"
+   665→          r={radius}
+   666→          fill="none"
+   667→          stroke="oklch(0.5 0.02 280 / 0.12)"
+   668→          strokeWidth="10"
+   669→        />
+   670→        <motion.circle
+   671→          cx="70"
+   672→          cy="70"
+   673→          r={radius}
+   674→          fill="none"
+   675→          stroke={color}
+   676→          strokeWidth="10"
+   677→          strokeLinecap="round"
+   678→          strokeDasharray={circ}
+   679→          initial={{ strokeDashoffset: circ }}
+   680→          animate={{ strokeDashoffset: offset }}
+   681→          transition={{ duration: 1.2, ease: 'easeOut' }}
+   682→        />
+   683→      </svg>
+   684→      <div className="absolute inset-0 flex flex-col items-center justify-center">
+   685→        <span className="text-3xl font-bold" style={{ color }}>
+   686→          {score}
+   687→        </span>
+   688→        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   689→          Health Score
+   690→        </span>
+   691→      </div>
+   692→    </div>
+   693→  )
+   694→}
+   695→
+   696→function SkeletonHeader() {
+   697→  return (
+   698→    <div className="h-16 rounded-2xl glass shimmer" />
+   699→  )
+   700→}
+   701→
+   702→function generateGrowthData(current: number) {
+   703→  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']
+   704→  let val = Math.max(current * 0.6, 1000)
+   705→  return months.map((m, i) => {
+   706→    const noise = 1 + (Math.sin(i * 1.3) + 1) * 0.08
+   707→    val = Math.round(val * noise + current * 0.06)
+   708→    if (i === months.length - 1) val = current
+   709→    return { month: m, subscribers: val }
+   710→  })
+   711→}
+   712→

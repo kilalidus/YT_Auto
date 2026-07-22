@@ -1,0 +1,898 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+     4→import { motion, AnimatePresence } from 'framer-motion'
+     5→import {
+     6→  Upload,
+     7→  File as FileIcon,
+     8→  Image as ImageIcon,
+     9→  Video as VideoIcon,
+    10→  Play,
+    11→  Download,
+    12→  Copy,
+    13→  Trash2,
+    14→  MoreVertical,
+    15→  Search,
+    16→  LayoutGrid,
+    17→  List as ListIcon,
+    18→  HardDrive,
+    19→  Loader2,
+    20→  FolderOpen,
+    21→  AlertCircle,
+    22→  CloudUpload,
+    23→  FileImage,
+    24→  FileVideo,
+    25→  FileAudio,
+    26→  FileText as FileDoc,
+    27→  Box,
+    28→} from 'lucide-react'
+    29→import { Button } from '@/components/ui/button'
+    30→import { Input } from '@/components/ui/input'
+    31→import { Badge } from '@/components/ui/badge'
+    32→import { Progress } from '@/components/ui/progress'
+    33→import {
+    34→  Select,
+    35→  SelectContent,
+    36→  SelectItem,
+    37→  SelectTrigger,
+    38→  SelectValue,
+    39→} from '@/components/ui/select'
+    40→import {
+    41→  DropdownMenu,
+    42→  DropdownMenuContent,
+    43→  DropdownMenuItem,
+    44→  DropdownMenuSeparator,
+    45→  DropdownMenuTrigger,
+    46→} from '@/components/ui/dropdown-menu'
+    47→import {
+    48→  AlertDialog,
+    49→  AlertDialogAction,
+    50→  AlertDialogCancel,
+    51→  AlertDialogContent,
+    52→  AlertDialogDescription,
+    53→  AlertDialogFooter,
+    54→  AlertDialogHeader,
+    55→  AlertDialogTitle,
+    56→} from '@/components/ui/alert-dialog'
+    57→import {
+    58→  Table,
+    59→  TableBody,
+    60→  TableCell,
+    61→  TableHead,
+    62→  TableHeader,
+    63→  TableRow,
+    64→} from '@/components/ui/table'
+    65→import { toast } from 'sonner'
+    66→import { apiFetch, formatBytes, timeAgo } from '@/lib/api-client'
+    67→
+    68→interface Project {
+    69→  id: string
+    70→  name: string
+    71→  color: string
+    72→}
+    73→
+    74→interface FileAsset {
+    75→  id: string
+    76→  name: string
+    77→  type: string
+    78→  mimeType: string
+    79→  size: number
+    80→  url: string
+    81→  data: string | null
+    82→  createdAt: string
+    83→  projectId: string | null
+    84→  project: { id: string; name: string; color: string } | null
+    85→}
+    86→
+    87→type TypeFilter =
+    88→  | 'all'
+    89→  | 'image'
+    90→  | 'video'
+    91→  | 'audio'
+    92→  | 'document'
+    93→  | 'thumbnail'
+    94→  | 'asset'
+    95→
+    96→const MAX_SIZE = 3 * 1024 * 1024 // 3MB
+    97→const STORAGE_QUOTA = 2 * 1024 * 1024 * 1024 // 2GB fake quota
+    98→
+    99→const TYPE_ICON: Record<
+   100→  string,
+   101→  { icon: typeof FileIcon; gradient: string; label: string }
+   102→> = {
+   103→  image: { icon: FileImage, gradient: 'from-fuchsia-500 to-pink-500', label: 'Image' },
+   104→  thumbnail: { icon: FileImage, gradient: 'from-rose-500 to-orange-500', label: 'Thumbnail' },
+   105→  video: { icon: FileVideo, gradient: 'from-sky-500 to-indigo-500', label: 'Video' },
+   106→  audio: { icon: FileAudio, gradient: 'from-emerald-500 to-teal-500', label: 'Audio' },
+   107→  document: { icon: FileDoc, gradient: 'from-violet-500 to-purple-500', label: 'Document' },
+   108→  asset: { icon: Box, gradient: 'from-amber-500 to-orange-500', label: 'Asset' },
+   109→}
+   110→
+   111→function getTypeMeta(type: string) {
+   112→  return (
+   113→    TYPE_ICON[type] ?? {
+   114→      icon: FileIcon,
+   115→      gradient: 'from-slate-500 to-slate-600',
+   116→      label: type.charAt(0).toUpperCase() + type.slice(1),
+   117→    }
+   118→  )
+   119→}
+   120→
+   121→function getExtension(name: string): string {
+   122→  const parts = name.split('.')
+   123→  return parts.length > 1 ? parts.pop()!.toUpperCase().slice(0, 4) : 'FILE'
+   124→}
+   125→
+   126→function FileThumbnail({
+   127→  file,
+   128→  className,
+   129→}: {
+   130→  file: FileAsset
+   131→  className?: string
+   132→}) {
+   133→  const meta = getTypeMeta(file.type)
+   134→  const Icon = meta.icon
+   135→  const isImage = file.type === 'image' || file.type === 'thumbnail'
+   136→
+   137→  if (isImage && file.data && file.data.startsWith('data:')) {
+   138→    return (
+   139→       
+   140→      <img
+   141→        src={file.data}
+   142→        alt={file.name}
+   143→        className={className}
+   144→      />
+   145→    )
+   146→  }
+   147→
+   148→  if (file.type === 'video') {
+   149→    return (
+   150→      <div
+   151→        className={`${className} relative flex items-center justify-center bg-gradient-to-br ${meta.gradient}`}
+   152→      >
+   153→        <div className="absolute inset-0 bg-grid opacity-20" />
+   154→        <div className="relative w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+   155→          <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+   156→        </div>
+   157→      </div>
+   158→    )
+   159→  }
+   160→
+   161→  return (
+   162→    <div
+   163→      className={`${className} relative flex items-center justify-center bg-gradient-to-br ${meta.gradient}`}
+   164→    >
+   165→      <div className="absolute inset-0 bg-dots opacity-20" />
+   166→      <Icon className="relative w-10 h-10 text-white/90" />
+   167→    </div>
+   168→  )
+   169→}
+   170→
+   171→function StatChip({
+   172→  icon: Icon,
+   173→  label,
+   174→  value,
+   175→  color,
+   176→}: {
+   177→  icon: typeof FileIcon
+   178→  label: string
+   179→  value: string
+   180→  color: string
+   181→}) {
+   182→  return (
+   183→    <div className="glass rounded-xl px-4 py-3 lift flex items-center gap-3 min-w-0">
+   184→      <div
+   185→        className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center shrink-0`}
+   186→      >
+   187→        <Icon className="w-4 h-4 text-white" />
+   188→      </div>
+   189→      <div className="min-w-0">
+   190→        <p className="text-[11px] uppercase tracking-wider text-muted-foreground truncate">
+   191→          {label}
+   192→        </p>
+   193→        <p className="text-lg font-bold leading-tight truncate">{value}</p>
+   194→      </div>
+   195→    </div>
+   196→  )
+   197→}
+   198→
+   199→export function FilesView() {
+   200→  const [files, setFiles] = useState<FileAsset[]>([])
+   201→  const [projects, setProjects] = useState<Project[]>([])
+   202→  const [loading, setLoading] = useState(true)
+   203→  const [uploading, setUploading] = useState(false)
+   204→  const [dragOver, setDragOver] = useState(false)
+   205→
+   206→  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+   207→  const [projectFilter, setProjectFilter] = useState<string>('all')
+   208→  const [search, setSearch] = useState('')
+   209→  const [view, setView] = useState<'grid' | 'list'>('grid')
+   210→
+   211→  const [deleteId, setDeleteId] = useState<string | null>(null)
+   212→  const fileInputRef = useRef<HTMLInputElement>(null)
+   213→
+   214→  const load = useCallback(async () => {
+   215→    try {
+   216→      const [fRes, pRes] = await Promise.all([
+   217→        apiFetch<{ files: FileAsset[] }>('/api/files'),
+   218→        apiFetch<{ projects: Project[] }>('/api/projects'),
+   219→      ])
+   220→      setFiles(fRes.files)
+   221→      setProjects(pRes.projects)
+   222→    } catch {
+   223→      toast.error('Failed to load files')
+   224→    } finally {
+   225→      setLoading(false)
+   226→    }
+   227→  }, [])
+   228→
+   229→  useEffect(() => {
+   230→    void load()
+   231→  }, [load])
+   232→
+   233→  const filtered = useMemo(() => {
+   234→    return files.filter((f) => {
+   235→      if (typeFilter !== 'all' && f.type !== typeFilter) return false
+   236→      if (projectFilter === 'none' && f.projectId) return false
+   237→      if (
+   238→        projectFilter !== 'all' &&
+   239→        projectFilter !== 'none' &&
+   240→        f.projectId !== projectFilter
+   241→      )
+   242→        return false
+   243→      if (search.trim()) {
+   244→        const q = search.toLowerCase()
+   245→        if (!f.name.toLowerCase().includes(q)) return false
+   246→      }
+   247→      return true
+   248→    })
+   249→  }, [files, typeFilter, projectFilter, search])
+   250→
+   251→  const stats = useMemo(() => {
+   252→    const totalSize = files.reduce((sum, f) => sum + f.size, 0)
+   253→    const byType: Record<string, number> = {}
+   254→    for (const f of files) byType[f.type] = (byType[f.type] ?? 0) + 1
+   255→    return {
+   256→      total: files.length,
+   257→      totalSize,
+   258→      byType,
+   259→    }
+   260→  }, [files])
+   261→
+   262→  const storagePct = Math.min(
+   263→    (stats.totalSize / STORAGE_QUOTA) * 100,
+   264→    100
+   265→  )
+   266→
+   267→  const handleFiles = useCallback(
+   268→    async (fileList: FileList | null) => {
+   269→      if (!fileList || fileList.length === 0) return
+   270→      const file = fileList[0]
+   271→      if (file.size > MAX_SIZE) {
+   272→        toast.error('File too large', {
+   273→          description: `Maximum size is 3MB. Your file is ${formatBytes(
+   274→            file.size
+   275→          )}.`,
+   276→        })
+   277→        return
+   278→      }
+   279→
+   280→      setUploading(true)
+   281→      try {
+   282→        const formData = new FormData()
+   283→        formData.append('file', file)
+   284→        if (projectFilter !== 'all' && projectFilter !== 'none') {
+   285→          formData.append('projectId', projectFilter)
+   286→        }
+   287→        const res = await fetch('/api/upload', {
+   288→          method: 'POST',
+   289→          body: formData,
+   290→          credentials: 'include',
+   291→        })
+   292→        const data = await res.json().catch(() => null)
+   293→        if (!res.ok) {
+   294→          throw new Error(
+   295→            (data && (data.error || data.message)) || 'Upload failed'
+   296→          )
+   297→        }
+   298→        toast.success('File uploaded', {
+   299→          description: file.name,
+   300→        })
+   301→        await load()
+   302→      } catch (err) {
+   303→        toast.error('Upload failed', {
+   304→          description: err instanceof Error ? err.message : 'Unknown error',
+   305→        })
+   306→      } finally {
+   307→        setUploading(false)
+   308→      }
+   309→    },
+   310→    [projectFilter, load]
+   311→  )
+   312→
+   313→  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+   314→    void handleFiles(e.target.files)
+   315→    e.target.value = ''
+   316→  }
+   317→
+   318→  const onDrop = (e: React.DragEvent) => {
+   319→    e.preventDefault()
+   320→    setDragOver(false)
+   321→    void handleFiles(e.dataTransfer.files)
+   322→  }
+   323→
+   324→  const copyUrl = useCallback((f: FileAsset) => {
+   325→    const url = f.url || f.data || ''
+   326→    if (!url) {
+   327→      toast.error('No URL available for this file')
+   328→      return
+   329→    }
+   330→    navigator.clipboard
+   331→      .writeText(url)
+   332→      .then(() => toast.success('URL copied to clipboard'))
+   333→      .catch(() => toast.error('Failed to copy URL'))
+   334→  }, [])
+   335→
+   336→  const download = useCallback((f: FileAsset) => {
+   337→    const src = f.url || f.data
+   338→    if (!src) {
+   339→      toast.error('No file data available')
+   340→      return
+   341→    }
+   342→    const a = document.createElement('a')
+   343→    a.href = src
+   344→    a.download = f.name
+   345→    document.body.appendChild(a)
+   346→    a.click()
+   347→    document.body.removeChild(a)
+   348→  }, [])
+   349→
+   350→  const confirmDelete = useCallback(async () => {
+   351→    if (!deleteId) return
+   352→    const prev = files
+   353→    setFiles((cur) => cur.filter((f) => f.id !== deleteId))
+   354→    setDeleteId(null)
+   355→    try {
+   356→      await apiFetch(`/api/files/${deleteId}`, { method: 'DELETE' })
+   357→      toast.success('File deleted')
+   358→    } catch {
+   359→      setFiles(prev)
+   360→      toast.error('Failed to delete file')
+   361→    }
+   362→  }, [deleteId, files])
+   363→
+   364→  if (loading) {
+   365→    return (
+   366→      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   367→        <div className="h-10 w-56 rounded-xl glass shimmer" />
+   368→        <div className="h-32 rounded-2xl glass shimmer" />
+   369→        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+   370→          {Array.from({ length: 4 }).map((_, i) => (
+   371→            <div key={i} className="h-20 rounded-xl glass shimmer" />
+   372→          ))}
+   373→        </div>
+   374→        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+   375→          {Array.from({ length: 8 }).map((_, i) => (
+   376→            <div key={i} className="h-56 rounded-2xl glass shimmer" />
+   377→          ))}
+   378→        </div>
+   379→      </div>
+   380→    )
+   381→  }
+   382→
+   383→  return (
+   384→    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+   385→      {/* Hidden file input */}
+   386→      <input
+   387→        ref={fileInputRef}
+   388→        type="file"
+   389→        className="hidden"
+   390→        onChange={onInputChange}
+   391→        accept="image/*,video/*,audio/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+   392→      />
+   393→
+   394→      {/* Header */}
+   395→      <motion.div
+   396→        initial={{ opacity: 0, y: 10 }}
+   397→        animate={{ opacity: 1, y: 0 }}
+   398→        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+   399→      >
+   400→        <div>
+   401→          <div className="flex items-center gap-2 mb-1">
+   402→            <FolderOpen className="w-4 h-4 text-primary" />
+   403→            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   404→              Library
+   405→            </span>
+   406→          </div>
+   407→          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   408→            File <span className="text-gradient">Manager</span>
+   409→          </h1>
+   410→          <p className="text-sm text-muted-foreground mt-1">
+   411→            Upload, organize, and manage your thumbnails, assets, and documents.
+   412→          </p>
+   413→        </div>
+   414→        <Button
+   415→          onClick={() => fileInputRef.current?.click()}
+   416→          disabled={uploading}
+   417→          className="grad-primary text-white rounded-xl glow-primary font-semibold"
+   418→        >
+   419→          {uploading ? (
+   420→            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   421→          ) : (
+   422→            <CloudUpload className="w-4 h-4 mr-2" />
+   423→          )}
+   424→          {uploading ? 'Uploading…' : 'Upload File'}
+   425→        </Button>
+   426→      </motion.div>
+   427→
+   428→      {/* Upload zone */}
+   429→      <motion.div
+   430→        initial={{ opacity: 0, y: 10 }}
+   431→        animate={{ opacity: 1, y: 0 }}
+   432→        transition={{ delay: 0.05 }}
+   433→        onDragOver={(e) => {
+   434→          e.preventDefault()
+   435→          setDragOver(true)
+   436→        }}
+   437→        onDragLeave={() => setDragOver(false)}
+   438→        onDrop={onDrop}
+   439→        onClick={() => !uploading && fileInputRef.current?.click()}
+   440→        className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-6 sm:p-8 text-center transition-all overflow-hidden ${
+   441→          dragOver
+   442→            ? 'grad-primary border-transparent text-white glow-primary'
+   443→            : 'glass border-border hover:border-primary/50'
+   444→        }`}
+   445→      >
+   446→        <div
+   447→          className={`absolute inset-0 bg-dots opacity-30 pointer-events-none ${
+   448→            dragOver ? 'opacity-50' : ''
+   449→          }`}
+   450→        />
+   451→        <div className="relative flex flex-col items-center gap-3">
+   452→          <div
+   453→            className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+   454→              dragOver
+   455→                ? 'bg-white/20 backdrop-blur'
+   456→                : 'grad-primary glow-primary'
+   457→            }`}
+   458→          >
+   459→            {uploading ? (
+   460→              <Loader2 className="w-6 h-6 text-white animate-spin" />
+   461→            ) : (
+   462→              <CloudUpload className="w-6 h-6 text-white" />
+   463→            )}
+   464→          </div>
+   465→          <div>
+   466→            <p className="font-semibold">
+   467→              {uploading
+   468→                ? 'Uploading your file…'
+   469→                : dragOver
+   470→                ? 'Drop to upload'
+   471→                : 'Drag & drop a file here, or click to browse'}
+   472→            </p>
+   473→            <p
+   474→              className={`text-xs mt-1 ${
+   475→                dragOver ? 'text-white/80' : 'text-muted-foreground'
+   476→              }`}
+   477→            >
+   478→              Images, video, audio, and documents · Max 3MB per file
+   479→            </p>
+   480→          </div>
+   481→        </div>
+   482→      </motion.div>
+   483→
+   484→      {/* Stats strip */}
+   485→      <motion.div
+   486→        initial={{ opacity: 0, y: 10 }}
+   487→        animate={{ opacity: 1, y: 0 }}
+   488→        transition={{ delay: 0.1 }}
+   489→        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+   490→      >
+   491→        <StatChip
+   492→          icon={FileIcon}
+   493→          label="Total files"
+   494→          value={String(stats.total)}
+   495→          color="grad-primary"
+   496→        />
+   497→        <StatChip
+   498→          icon={HardDrive}
+   499→          label="Total size"
+   500→          value={formatBytes(stats.totalSize)}
+   501→          color="grad-cool"
+   502→        />
+   503→        <StatChip
+   504→          icon={ImageIcon}
+   505→          label="Images"
+   506→          value={String(
+   507→            (stats.byType.image ?? 0) + (stats.byType.thumbnail ?? 0)
+   508→          )}
+   509→          color="grad-warm"
+   510→        />
+   511→        <StatChip
+   512→          icon={VideoIcon}
+   513→          label="Videos"
+   514→          value={String(stats.byType.video ?? 0)}
+   515→          color="grad-success"
+   516→        />
+   517→      </motion.div>
+   518→
+   519→      {/* Storage bar */}
+   520→      <motion.div
+   521→        initial={{ opacity: 0, y: 10 }}
+   522→        animate={{ opacity: 1, y: 0 }}
+   523→        transition={{ delay: 0.12 }}
+   524→        className="glass rounded-2xl p-4 sm:p-5"
+   525→      >
+   526→        <div className="flex items-center justify-between mb-2">
+   527→          <div className="flex items-center gap-2">
+   528→            <HardDrive className="w-4 h-4 text-primary" />
+   529→            <span className="text-sm font-semibold">Storage</span>
+   530→          </div>
+   531→          <span className="text-xs text-muted-foreground">
+   532→            {formatBytes(stats.totalSize)} of {formatBytes(STORAGE_QUOTA)} used
+   533→          </span>
+   534→        </div>
+   535→        <Progress
+   536→          value={storagePct}
+   537→          className="h-2.5"
+   538→        />
+   539→        <p className="text-[11px] text-muted-foreground mt-2">
+   540→          {storagePct.toFixed(2)}% of your 2GB storage quota used
+   541→        </p>
+   542→      </motion.div>
+   543→
+   544→      {/* Filter bar */}
+   545→      <motion.div
+   546→        initial={{ opacity: 0, y: 10 }}
+   547→        animate={{ opacity: 1, y: 0 }}
+   548→        transition={{ delay: 0.15 }}
+   549→        className="glass rounded-2xl p-3 flex flex-col lg:flex-row lg:items-center gap-3"
+   550→      >
+   551→        <div className="relative flex-1 min-w-0">
+   552→          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   553→          <Input
+   554→            placeholder="Search files by name…"
+   555→            value={search}
+   556→            onChange={(e) => setSearch(e.target.value)}
+   557→            className="pl-9 rounded-xl bg-background/40"
+   558→          />
+   559→        </div>
+   560→        <div className="flex items-center gap-2 flex-wrap">
+   561→          <Select
+   562→            value={typeFilter}
+   563→            onValueChange={(v) => setTypeFilter(v as TypeFilter)}
+   564→          >
+   565→            <SelectTrigger className="w-[140px] rounded-xl bg-background/40">
+   566→              <SelectValue placeholder="Type" />
+   567→            </SelectTrigger>
+   568→            <SelectContent>
+   569→              <SelectItem value="all">All types</SelectItem>
+   570→              <SelectItem value="image">Images</SelectItem>
+   571→              <SelectItem value="video">Videos</SelectItem>
+   572→              <SelectItem value="audio">Audio</SelectItem>
+   573→              <SelectItem value="document">Documents</SelectItem>
+   574→              <SelectItem value="thumbnail">Thumbnails</SelectItem>
+   575→              <SelectItem value="asset">Assets</SelectItem>
+   576→            </SelectContent>
+   577→          </Select>
+   578→          <Select value={projectFilter} onValueChange={setProjectFilter}>
+   579→            <SelectTrigger className="w-[160px] rounded-xl bg-background/40">
+   580→              <SelectValue placeholder="Project" />
+   581→            </SelectTrigger>
+   582→            <SelectContent>
+   583→              <SelectItem value="all">All projects</SelectItem>
+   584→              <SelectItem value="none">Unassigned</SelectItem>
+   585→              {projects.map((p) => (
+   586→                <SelectItem key={p.id} value={p.id}>
+   587→                  <span className="flex items-center gap-2">
+   588→                    <span
+   589→                      className="w-2 h-2 rounded-full"
+   590→                      style={{ background: p.color }}
+   591→                    />
+   592→                    {p.name}
+   593→                  </span>
+   594→                </SelectItem>
+   595→              ))}
+   596→            </SelectContent>
+   597→          </Select>
+   598→          <div className="glass rounded-xl p-0.5 flex items-center">
+   599→            <button
+   600→              onClick={() => setView('grid')}
+   601→              className={`w-9 h-8 rounded-lg flex items-center justify-center transition-colors ${
+   602→                view === 'grid'
+   603→                  ? 'grad-primary text-white'
+   604→                  : 'text-muted-foreground hover:text-foreground'
+   605→              }`}
+   606→              title="Grid view"
+   607→            >
+   608→              <LayoutGrid className="w-4 h-4" />
+   609→            </button>
+   610→            <button
+   611→              onClick={() => setView('list')}
+   612→              className={`w-9 h-8 rounded-lg flex items-center justify-center transition-colors ${
+   613→                view === 'list'
+   614→                  ? 'grad-primary text-white'
+   615→                  : 'text-muted-foreground hover:text-foreground'
+   616→              }`}
+   617→              title="List view"
+   618→            >
+   619→              <ListIcon className="w-4 h-4" />
+   620→            </button>
+   621→          </div>
+   622→        </div>
+   623→      </motion.div>
+   624→
+   625→      {/* Files */}
+   626→      {filtered.length === 0 ? (
+   627→        <motion.div
+   628→          initial={{ opacity: 0, scale: 0.96 }}
+   629→          animate={{ opacity: 1, scale: 1 }}
+   630→          className="glass rounded-2xl p-12 sm:p-16 text-center"
+   631→        >
+   632→          <div className="relative mx-auto w-28 h-28 mb-5">
+   633→            <div className="absolute inset-0 grad-primary rounded-full opacity-20 blur-2xl" />
+   634→            <div className="relative w-28 h-28 rounded-3xl glass-strong flex items-center justify-center float-slow">
+   635→              <FolderOpen className="w-12 h-12 text-primary" />
+   636→            </div>
+   637→          </div>
+   638→          <h3 className="text-lg font-semibold mb-1">
+   639→            {files.length === 0
+   640→              ? 'Upload your first file'
+   641→              : 'No files match your filters'}
+   642→          </h3>
+   643→          <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-5">
+   644→            {files.length === 0
+   645→              ? 'Drag a thumbnail, asset, or document into the upload zone to get started.'
+   646→              : 'Try adjusting your search or filters to find what you need.'}
+   647→          </p>
+   648→          {files.length === 0 && (
+   649→            <Button
+   650→              onClick={() => fileInputRef.current?.click()}
+   651→              className="grad-primary text-white rounded-xl glow-primary"
+   652→            >
+   653→              <CloudUpload className="w-4 h-4 mr-2" />
+   654→              Choose a file
+   655→            </Button>
+   656→          )}
+   657→        </motion.div>
+   658→      ) : view === 'grid' ? (
+   659→        <motion.div
+   660→          initial={{ opacity: 0 }}
+   661→          animate={{ opacity: 1 }}
+   662→          transition={{ delay: 0.2 }}
+   663→          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+   664→        >
+   665→          <AnimatePresence mode="popLayout">
+   666→            {filtered.map((f, i) => {
+   667→              const meta = getTypeMeta(f.type)
+   668→              return (
+   669→                <motion.div
+   670→                  key={f.id}
+   671→                  layout
+   672→                  initial={{ opacity: 0, y: 12 }}
+   673→                  animate={{ opacity: 1, y: 0 }}
+   674→                  exit={{ opacity: 0, scale: 0.95 }}
+   675→                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
+   676→                  className="glass card-3d rounded-2xl overflow-hidden group"
+   677→                >
+   678→                  {/* Preview */}
+   679→                  <div className="relative aspect-video overflow-hidden">
+   680→                    <FileThumbnail
+   681→                      file={f}
+   682→                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+   683→                    />
+   684→                    <div className="absolute top-2 left-2">
+   685→                      <Badge
+   686→                        variant="secondary"
+   687→                        className="bg-black/50 backdrop-blur text-white border-0 text-[10px] py-0.5 px-1.5"
+   688→                      >
+   689→                        {meta.label}
+   690→                      </Badge>
+   691→                    </div>
+   692→                    {f.project && (
+   693→                      <div className="absolute top-2 right-2 flex items-center gap-1 bg-black/50 backdrop-blur rounded-full px-2 py-0.5">
+   694→                        <span
+   695→                          className="w-1.5 h-1.5 rounded-full"
+   696→                          style={{ background: f.project.color }}
+   697→                        />
+   698→                        <span className="text-[10px] text-white font-medium max-w-[80px] truncate">
+   699→                          {f.project.name}
+   700→                        </span>
+   701→                      </div>
+   702→                    )}
+   703→                    {/* Extension badge for non-image */}
+   704→                    {f.type !== 'image' && f.type !== 'thumbnail' && (
+   705→                      <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur rounded-md px-1.5 py-0.5">
+   706→                        <span className="text-[10px] font-mono font-bold text-white">
+   707→                          {getExtension(f.name)}
+   708→                        </span>
+   709→                      </div>
+   710→                    )}
+   711→                  </div>
+   712→                  {/* Info */}
+   713→                  <div className="p-3 space-y-1">
+   714→                    <div className="flex items-start justify-between gap-2">
+   715→                      <p
+   716→                        className="text-sm font-medium truncate flex-1"
+   717→                        title={f.name}
+   718→                      >
+   719→                        {f.name}
+   720→                      </p>
+   721→                      <DropdownMenu>
+   722→                        <DropdownMenuTrigger asChild>
+   723→                          <button className="w-7 h-7 rounded-lg hover:bg-primary/15 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors shrink-0">
+   724→                            <MoreVertical className="w-3.5 h-3.5" />
+   725→                          </button>
+   726→                        </DropdownMenuTrigger>
+   727→                        <DropdownMenuContent align="end" className="w-40">
+   728→                          <DropdownMenuItem onClick={() => download(f)}>
+   729→                            <Download className="w-3.5 h-3.5 mr-2" />
+   730→                            Download
+   731→                          </DropdownMenuItem>
+   732→                          <DropdownMenuItem onClick={() => copyUrl(f)}>
+   733→                            <Copy className="w-3.5 h-3.5 mr-2" />
+   734→                            Copy URL
+   735→                          </DropdownMenuItem>
+   736→                          <DropdownMenuSeparator />
+   737→                          <DropdownMenuItem
+   738→                            onClick={() => setDeleteId(f.id)}
+   739→                            className="text-red-500 focus:text-red-500"
+   740→                          >
+   741→                            <Trash2 className="w-3.5 h-3.5 mr-2" />
+   742→                            Delete
+   743→                          </DropdownMenuItem>
+   744→                        </DropdownMenuContent>
+   745→                      </DropdownMenu>
+   746→                    </div>
+   747→                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   748→                      <span>{formatBytes(f.size)}</span>
+   749→                      <span>{timeAgo(f.createdAt)}</span>
+   750→                    </div>
+   751→                  </div>
+   752→                </motion.div>
+   753→              )
+   754→            })}
+   755→          </AnimatePresence>
+   756→        </motion.div>
+   757→      ) : (
+   758→        <motion.div
+   759→          initial={{ opacity: 0, y: 10 }}
+   760→          animate={{ opacity: 1, y: 0 }}
+   761→          transition={{ delay: 0.2 }}
+   762→          className="glass rounded-2xl overflow-hidden"
+   763→        >
+   764→          <div className="overflow-x-auto scroll-styled">
+   765→            <Table>
+   766→              <TableHeader>
+   767→                <TableRow className="border-border/60 hover:bg-transparent">
+   768→                  <TableHead className="min-w-[220px]">Name</TableHead>
+   769→                  <TableHead className="w-[100px]">Type</TableHead>
+   770→                  <TableHead className="w-[90px]">Size</TableHead>
+   771→                  <TableHead className="w-[160px]">Project</TableHead>
+   772→                  <TableHead className="w-[120px]">Created</TableHead>
+   773→                  <TableHead className="w-[60px] text-right">Actions</TableHead>
+   774→                </TableRow>
+   775→              </TableHeader>
+   776→              <TableBody>
+   777→                {filtered.map((f) => {
+   778→                  const meta = getTypeMeta(f.type)
+   779→                  const Icon = meta.icon
+   780→                  return (
+   781→                    <TableRow
+   782→                      key={f.id}
+   783→                      className="border-border/40 hover:bg-primary/5"
+   784→                    >
+   785→                      <TableCell>
+   786→                        <div className="flex items-center gap-3 min-w-0">
+   787→                          <div
+   788→                            className={`w-9 h-9 rounded-lg bg-gradient-to-br ${meta.gradient} flex items-center justify-center shrink-0`}
+   789→                          >
+   790→                            <Icon className="w-4 h-4 text-white" />
+   791→                          </div>
+   792→                          <span
+   793→                            className="text-sm font-medium truncate"
+   794→                            title={f.name}
+   795→                          >
+   796→                            {f.name}
+   797→                          </span>
+   798→                        </div>
+   799→                      </TableCell>
+   800→                      <TableCell>
+   801→                        <Badge
+   802→                          variant="outline"
+   803→                          className="text-[10px] font-normal"
+   804→                        >
+   805→                          {meta.label}
+   806→                        </Badge>
+   807→                      </TableCell>
+   808→                      <TableCell className="text-xs text-muted-foreground">
+   809→                        {formatBytes(f.size)}
+   810→                      </TableCell>
+   811→                      <TableCell>
+   812→                        {f.project ? (
+   813→                          <div className="flex items-center gap-1.5 min-w-0">
+   814→                            <span
+   815→                              className="w-2 h-2 rounded-full shrink-0"
+   816→                              style={{ background: f.project.color }}
+   817→                            />
+   818→                            <span className="text-xs truncate">
+   819→                              {f.project.name}
+   820→                            </span>
+   821→                          </div>
+   822→                        ) : (
+   823→                          <span className="text-xs text-muted-foreground/60">
+   824→                            —
+   825→                          </span>
+   826→                        )}
+   827→                      </TableCell>
+   828→                      <TableCell className="text-xs text-muted-foreground">
+   829→                        {timeAgo(f.createdAt)}
+   830→                      </TableCell>
+   831→                      <TableCell className="text-right">
+   832→                        <DropdownMenu>
+   833→                          <DropdownMenuTrigger asChild>
+   834→                            <button className="w-7 h-7 rounded-lg hover:bg-primary/15 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors ml-auto">
+   835→                              <MoreVertical className="w-3.5 h-3.5" />
+   836→                            </button>
+   837→                          </DropdownMenuTrigger>
+   838→                          <DropdownMenuContent align="end" className="w-40">
+   839→                            <DropdownMenuItem onClick={() => download(f)}>
+   840→                              <Download className="w-3.5 h-3.5 mr-2" />
+   841→                              Download
+   842→                            </DropdownMenuItem>
+   843→                            <DropdownMenuItem onClick={() => copyUrl(f)}>
+   844→                              <Copy className="w-3.5 h-3.5 mr-2" />
+   845→                              Copy URL
+   846→                            </DropdownMenuItem>
+   847→                            <DropdownMenuSeparator />
+   848→                            <DropdownMenuItem
+   849→                              onClick={() => setDeleteId(f.id)}
+   850→                              className="text-red-500 focus:text-red-500"
+   851→                            >
+   852→                              <Trash2 className="w-3.5 h-3.5 mr-2" />
+   853→                              Delete
+   854→                            </DropdownMenuItem>
+   855→                          </DropdownMenuContent>
+   856→                        </DropdownMenu>
+   857→                      </TableCell>
+   858→                    </TableRow>
+   859→                  )
+   860→                })}
+   861→              </TableBody>
+   862→            </Table>
+   863→          </div>
+   864→        </motion.div>
+   865→      )}
+   866→
+   867→      {/* Delete confirmation */}
+   868→      <AlertDialog
+   869→        open={!!deleteId}
+   870→        onOpenChange={(o) => !o && setDeleteId(null)}
+   871→      >
+   872→        <AlertDialogContent className="glass-strong">
+   873→          <AlertDialogHeader>
+   874→            <AlertDialogTitle className="flex items-center gap-2">
+   875→              <AlertCircle className="w-5 h-5 text-red-500" />
+   876→              Delete this file?
+   877→            </AlertDialogTitle>
+   878→            <AlertDialogDescription>
+   879→              This action cannot be undone. The file will be permanently removed
+   880→              from your library.
+   881→            </AlertDialogDescription>
+   882→          </AlertDialogHeader>
+   883→          <AlertDialogFooter>
+   884→            <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+   885→            <AlertDialogAction
+   886→              onClick={confirmDelete}
+   887→              className="rounded-xl bg-red-500 hover:bg-red-600 text-white"
+   888→            >
+   889→              <Trash2 className="w-4 h-4 mr-2" />
+   890→              Delete
+   891→            </AlertDialogAction>
+   892→          </AlertDialogFooter>
+   893→        </AlertDialogContent>
+   894→      </AlertDialog>
+   895→    </div>
+   896→  )
+   897→}
+   898→
