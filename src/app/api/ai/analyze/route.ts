@@ -4,14 +4,14 @@ import { requireUser } from "@/lib/auth";
 import { analyzeChannel } from "@/lib/ai";
 import { pusherServer } from "@/lib/pusher-server";
 
-// Safe Pusher Trigger helper (won't crash if Pusher env vars are missing)
+// Helper to safely trigger Pusher without throwing if unconfigured on Vercel
 async function safePusherTrigger(channelId: string, event: string, data: Record<string, unknown>) {
   try {
     if (process.env.PUSHER_APP_ID && process.env.NEXT_PUBLIC_PUSHER_KEY) {
       await pusherServer.trigger(`channel-${channelId}`, event, data);
     }
   } catch (err) {
-    console.warn("Pusher trigger skipped/failed:", err instanceof Error ? err.message : err);
+    console.warn("Pusher trigger skipped or failed:", err instanceof Error ? err.message : err);
   }
 }
 
@@ -30,13 +30,13 @@ export async function POST(req: NextRequest) {
   try {
     console.log("========== /api/ai/analyze START ==========");
 
+    // Step 1: Authenticate User
     console.log("1. Authenticating user...");
     const user = await requireUser();
     if (!user || !user.id) {
       console.error("Auth failed: User object empty");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    console.log("User authenticated:", user.id);
 
     const body = await req.json().catch(() => ({}));
     const channelId = (body.channelId ?? "").toString();
@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
       message: "Loading channel data and recent videos...",
     });
 
+    // Step 2: Database Query
     console.log("2. Querying database for channelId:", channelId);
-
     const channel = await db.channel.findFirst({
       where: {
         id: channelId,
@@ -85,8 +85,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log("Channel found:", channel.title);
-
     const recentVideos = (channel.videos || []).map((v) => ({
       title: v.title ?? "",
       viewCount: v.viewCount ?? 0,
@@ -103,8 +101,8 @@ export async function POST(req: NextRequest) {
       message: "Analyzing channel performance with Gemini AI...",
     });
 
-    console.log("3. Invoking analyzeChannel (Gemini)...");
-
+    // Step 3: Run Gemini AI Analysis
+    console.log("3. Calling analyzeChannel (Gemini)...");
     const analysis = await analyzeChannel({
       title: channel.title,
       description: channel.description ?? "",
@@ -113,8 +111,6 @@ export async function POST(req: NextRequest) {
       viewCount: channel.viewCount ?? 0,
       recentVideos,
     });
-
-    console.log("Gemini returned response successfully.");
 
     const healthScore =
       typeof analysis.healthScore === "number" && !Number.isNaN(analysis.healthScore)
@@ -126,8 +122,8 @@ export async function POST(req: NextRequest) {
       message: "Saving AI analysis results...",
     });
 
-    console.log("4. Storing analysis in database...");
-
+    // Step 4: Persist Results
+    console.log("4. Storing analysis record in DB...");
     const stored = await db.aIAnalysis.create({
       data: {
         userId: user.id,
@@ -137,8 +133,6 @@ export async function POST(req: NextRequest) {
         score: healthScore,
       },
     });
-
-    console.log("5. Updating channel health score...");
 
     await db.channel.update({
       where: { id: channel.id },
@@ -166,13 +160,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(responsePayload);
   } catch (err) {
-    console.error("========== ANALYZE CATCH BLOCK ==========");
-
+    console.error("========== ANALYZE ROUTE ERROR ==========");
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const errorStack = err instanceof Error ? err.stack : "";
-
-    console.error("Error Message:", errorMessage);
-    console.error("Error Stack:", errorStack);
+    console.error("Details:", errorMessage);
 
     if (currentChannelId) {
       await safePusherTrigger(currentChannelId, "ai-status", {
@@ -181,15 +171,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (errorMessage === "UNAUTHORIZED") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     return NextResponse.json(
       {
         error: "Failed to analyze channel",
         details: errorMessage,
-        stack: process.env.NODE_ENV === "development" ? errorStack : undefined,
       },
       { status: 500 }
     );
