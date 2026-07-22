@@ -122,6 +122,7 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     )
   }
+  }
 
   // Tell the frontend whether YouTube was auto-connected so it can show a
   // toast and refresh the dashboard.
