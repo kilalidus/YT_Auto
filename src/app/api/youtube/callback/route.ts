@@ -72,7 +72,12 @@ export async function GET(req: NextRequest) {
   }
 
   // 4. Persist tokens.
+  try {
   await storeYouTubeTokens(user.id, tokens)
+} catch (e) {
+  console.error("storeYouTubeTokens failed:", e)
+  throw e
+}
 
   // 5. Trigger initial sync (best-effort — if it fails, the user can use
   //    the "Sync Now" button in settings).
