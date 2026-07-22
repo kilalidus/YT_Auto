@@ -31,11 +31,8 @@ export interface ContentIdea {
 }
 
 /**
- * Executes an LLM call with a primary model and a secondary fallback model
- * to ensure maximum uptime.
- */
-/**
  * Executes an LLM call with verified Gemini models.
+ * Prioritizes 2.0 Flash for speed and rate limits, with fallback to 1.5 models.
  */
 async function runLLM(
   systemPrompt: string,
@@ -43,9 +40,9 @@ async function runLLM(
   json = false
 ): Promise<string> {
   const ai = getAI();
-  
-  // Use verified Gemini model identifiers
-  const modelsToTry = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
+
+  // Optimized model fallback order
+  const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
   let lastError: unknown = null;
 
@@ -66,6 +63,9 @@ async function runLLM(
         console.log(`[Gemini] SUCCESS with model: ${model}`);
         return response.text;
       }
+
+      // Explicitly throw if output was filtered or empty to ensure proper error tracking
+      throw new Error(`Model '${model}' returned an empty response or output was filtered.`);
     } catch (err: any) {
       console.error(`[Gemini Error] Model '${model}' failed:`, err?.message || err);
       lastError = err;
@@ -75,7 +75,7 @@ async function runLLM(
   // If all models failed, log the failure clearly to Vercel logs
   console.error("========== GEMINI FAILED ALL MODELS ==========");
   console.error("Last Error Details:", lastError);
-  
+
   throw lastError || new Error("Gemini API failed to return a response.");
 }
 
