@@ -110,17 +110,21 @@ export async function GET(req: NextRequest) {
           read: false,
         },
       }).catch(() => {})
-    } catch (e) {
-    console.error("GOOGLE CALLBACK ERROR")
-    console.error(e)
+    } catch (error) {
+    console.error("========== GOOGLE CALLBACK ERROR ==========");
+    console.error(error);
+
+    if (error instanceof Error) {
+      console.error(error.message);
+      console.error(error.stack);
+    }
 
     return NextResponse.json(
       {
-        error: e instanceof Error ? e.message : String(e),
-        stack: e instanceof Error ? e.stack : null,
+        error: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
-    )
+    );
   }
   }
 
