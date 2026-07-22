@@ -29,13 +29,12 @@ async function runLLM(
     const ai = getAI();
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `${systemPrompt}\n\n${userMessage}`,
-      config: json
-        ? {
-            responseMimeType: "application/json",
-          }
-        : undefined,
+      model: "models/gemini-2.5-flash",
+      contents: userMessage,
+      config: {
+        systemInstruction: systemPrompt,
+        ...(json ? { responseMimeType: "application/json" } : {}),
+      },
     });
 
     console.log("Gemini response text:", response.text);
@@ -86,6 +85,7 @@ async function runJSON<T>(
     throw new Error("Failed to parse Gemini JSON response");
   }
 }
+
 /* =======================================================
    Channel Analysis
 ======================================================= */
@@ -191,6 +191,7 @@ ${JSON.stringify(channelInfo, null, 2)}
 
   return result;
 }
+
 /* =======================================================
    Recommendations
 ======================================================= */
@@ -250,6 +251,7 @@ ${JSON.stringify(channelInfo, null, 2)}
     calendar: string[];
   }>(system, user);
 }
+
 /* =======================================================
    Script Generator
 ======================================================= */
@@ -307,6 +309,7 @@ The script should include:
 
   return runLLM(system, user);
 }
+
 /* =======================================================
    Content Ideas
 ======================================================= */
@@ -373,6 +376,7 @@ ${params.audience}
 
   return result;
 }
+
 /* =======================================================
    AI Chat
 ======================================================= */

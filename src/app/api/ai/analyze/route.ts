@@ -143,6 +143,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to analyze channel",
+        details: err instanceof Error ? err.message : String(err),
       },
       {
         status: 500,
