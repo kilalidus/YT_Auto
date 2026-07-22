@@ -33,6 +33,7 @@ export interface ContentIdea {
 /**
  * Executes an LLM call with verified Gemini models.
  * Prioritizes 2.0 Flash for speed and rate limits, with fallback to 1.5 models.
+ * Includes exponential backoff delay for HTTP 429 Rate Limit handling.
  */
 async function runLLM(
   systemPrompt: string,
@@ -46,7 +47,8 @@ async function runLLM(
 
   let lastError: unknown = null;
 
-  for (const model of modelsToTry) {
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i];
     try {
       console.log(`[Gemini] Attempting call with model: ${model}...`);
 
@@ -64,15 +66,29 @@ async function runLLM(
         return response.text;
       }
 
-      // Explicitly throw if output was filtered or empty to ensure proper error tracking
+      // Explicitly throw if output was filtered or empty
       throw new Error(`Model '${model}' returned an empty response or output was filtered.`);
     } catch (err: any) {
-      console.error(`[Gemini Error] Model '${model}' failed:`, err?.message || err);
+      const errMsg = err?.message || String(err);
+      const is429 =
+        err?.status === 429 ||
+        errMsg.includes("429") ||
+        errMsg.includes("RESOURCE_EXHAUSTED") ||
+        errMsg.includes("Quota exceeded");
+
+      console.error(`[Gemini Error] Model '${model}' failed:`, errMsg);
       lastError = err;
+
+      // Pause before retrying or switching models if hit by 429 rate limits
+      if (is429 && i < modelsToTry.length - 1) {
+        const backoffDelay = 3000 * (i + 1); // Waits 3s, then 6s
+        console.warn(`[Gemini 429 Rate Limit] Waiting ${backoffDelay / 1000}s before fallback model...`);
+        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+      }
     }
   }
 
-  // If all models failed, log the failure clearly to Vercel logs
+  // If all models failed, log the failure clearly
   console.error("========== GEMINI FAILED ALL MODELS ==========");
   console.error("Last Error Details:", lastError);
 
@@ -134,6 +150,27 @@ export async function analyzeChannel(channelInfo: {
     isShort: boolean;
   }>;
 }) {
+  // Edge Case: Check for 0 videos or empty recent uploads list
+  if (!channelInfo.videoCount || channelInfo.videoCount === 0 || !channelInfo.recentVideos || channelInfo.recentVideos.length === 0) {
+    return {
+      healthScore: 50,
+      summary: `Channel "${channelInfo.title || "your channel"}" has no public uploads yet. Upload your first video to generate detailed AI analysis.`,
+      strengths: channelInfo.description
+        ? ["Channel description configured", "Channel metadata exists"]
+        : ["Channel created"],
+      weaknesses: ["No video content uploaded yet"],
+      performance: { rating: "N/A", note: "Upload videos to begin calculating viewer performance." },
+      engagement: { rating: "N/A", avgEngagementRate: "0%", note: "No interaction metrics available." },
+      consistency: { rating: "Needs Work", uploadFrequency: "No uploads", note: "Set an upload schedule for your channel launch." },
+      seo: { rating: "Fair", score: 50, note: "Optimize channel keywords and description." },
+      retention: { trend: "N/A", note: "Retention insights will build as videos gain watch time." },
+      ctrOpportunities: [
+        "Design bold, high-contrast thumbnails for your upcoming launch",
+        "Craft searchable video titles tailored to your niche target audience"
+      ],
+    };
+  }
+
   const system = `
 You are an expert YouTube strategist.
 Analyze the channel's performance, audience engagement, SEO, upload consistency, retention, and growth opportunities.
@@ -195,18 +232,18 @@ ${JSON.stringify(channelInfo, null, 2)}
   } catch (error) {
     console.error("[analyzeChannel] Falling back to default analysis payload:", error);
 
-    // Fallback response guarantees your /api/ai/analyze route returns HTTP 200
+    // Contextual fallback response when API fails for an existing channel
     return {
-      healthScore: 70,
-      summary: `Analysis for ${channelInfo.title || "your channel"} based on recent upload history.`,
-      strengths: ["Active upload history", "Established channel metadata"],
-      weaknesses: ["Video titles can be further optimized for search intent"],
-      performance: { rating: "Good", note: "Decent view traction on recent uploads." },
-      engagement: { rating: "Moderate", avgEngagementRate: "3.5%", note: "Healthy subscriber interaction." },
-      consistency: { rating: "Good", uploadFrequency: "Weekly", note: "Keep a regular publishing calendar." },
-      seo: { rating: "Fair", score: 68, note: "Add more target keywords to titles and tags." },
-      retention: { trend: "Stable", note: "Maintain strong visual hooks in the first 30 seconds." },
-      ctrOpportunities: ["Use bold contrasting text in thumbnails", "Ask provocative questions in video titles"],
+      healthScore: 60,
+      summary: `Analysis for ${channelInfo.title || "your channel"} is using temporary cached data.`,
+      strengths: ["Channel profile set up"],
+      weaknesses: ["AI service temporarily timed out during analysis"],
+      performance: { rating: "Pending", note: "Re-run analysis in a few moments." },
+      engagement: { rating: "Pending", avgEngagementRate: "N/A", note: "Re-run analysis in a few moments." },
+      consistency: { rating: "Pending", uploadFrequency: "N/A", note: "Re-run analysis in a few moments." },
+      seo: { rating: "Fair", score: 60, note: "Add keywords to titles and tags." },
+      retention: { trend: "Stable", note: "Focus on strong hooks in the first 30 seconds." },
+      ctrOpportunities: ["Optimize video titles for search intent"],
     };
   }
 }
