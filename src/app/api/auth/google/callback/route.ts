@@ -14,135 +14,165 @@ import { storeYouTubeTokens } from '@/lib/youtube-oauth'
 import { syncYouTubeData } from '@/lib/youtube-sync'
 import { db } from '@/lib/db'
 
-// GET /api/auth/google/callback?code=...&state=...
-// Completes the real Google OAuth 2.0 authorization-code flow:
-//   1. Validate the `state` query param against the value stored in the
-//      short-lived OAuth state cookie (CSRF protection). Mismatch → 400.
-//   2. Exchange the `code` for tokens via Google's token endpoint. The
-//      response includes the id_token (user identity) AND, if the user
-//      granted YouTube scopes, an access_token + refresh_token usable
-//      for YouTube Data API calls.
-//   3. Decode the id_token JWT to extract email, name, picture.
-//   4. Upsert the User row in our DB (create if new, refresh profile if
-//      returning) and create a session.
-//   5. If the granted scope includes YouTube permissions, persist the
-//      YouTube tokens and trigger an initial channel sync so the user's
-//      dashboard is populated immediately — no separate "Connect YouTube"
-//      step required.
-//   6. Clear the OAuth state cookie and 302 redirect to / (the home page).
-//
-// On any error, redirect to /?auth_error=... so the AuthScreen can surface
-// a friendly toast (the AuthScreen is rendered when no session is present).
 export async function GET(req: NextRequest) {
-  const appUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-  const home = new URL('/', appUrl)
+  try {
+    console.log('========== GOOGLE CALLBACK START ==========')
 
-  if (!isGoogleConfigured()) {
-    home.searchParams.set('auth_error', 'google_not_configured')
-    return NextResponse.redirect(home)
-  }
+    const appUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+    const home = new URL('/', appUrl)
 
-  const { searchParams } = req.nextUrl
-  const code = searchParams.get('code')
-  const state = searchParams.get('state')
-  const err = searchParams.get('error')
+    if (!isGoogleConfigured()) {
+      home.searchParams.set('auth_error', 'google_not_configured')
+      return NextResponse.redirect(home)
+    }
 
-  // User denied consent, or Google returned an error.
-  if (err) {
-    home.searchParams.set('auth_error', err === 'access_denied' ? 'denied' : 'google_error')
-    return NextResponse.redirect(home)
-  }
-  if (!code || !state) {
-    home.searchParams.set('auth_error', 'invalid_callback')
-    return NextResponse.redirect(home)
-  }
+    const { searchParams } = req.nextUrl
+    const code = searchParams.get('code')
+    const state = searchParams.get('state')
+    const err = searchParams.get('error')
 
-  // Validate state (CSRF protection).
-  const stateOk = await validateOAuthState(state)
-  if (!stateOk) {
-    home.searchParams.set('auth_error', 'state_mismatch')
-    return NextResponse.redirect(home)
-  }
+    if (err) {
+      home.searchParams.set(
+        'auth_error',
+        err === 'access_denied' ? 'denied' : 'google_error'
+      )
+      return NextResponse.redirect(home)
+    }
 
-  // Exchange code → id_token + access_token + scope.
-  const tokens = await exchangeGoogleCode(code)
-  if (!tokens || !tokens.userInfo || !tokens.userInfo.email) {
-    home.searchParams.set('auth_error', 'token_exchange_failed')
-    return NextResponse.redirect(home)
-  }
+    if (!code || !state) {
+      home.searchParams.set('auth_error', 'invalid_callback')
+      return NextResponse.redirect(home)
+    }
 
-  // Upsert user + create session. We need the user.id to store YouTube tokens.
-  const sessionToken = await completeGoogleLogin(tokens.userInfo)
-  if (!sessionToken) {
-    home.searchParams.set('auth_error', 'session_failed')
-    return NextResponse.redirect(home)
-  }
+    console.log('STEP 1 - validate state')
 
-  // Look up the user we just created/updated so we can store YouTube tokens.
-  const user = await db.user.findUnique({
-    where: { email: tokens.userInfo.email },
-    select: { id: true, name: true },
-  })
+    const stateOk = await validateOAuthState(state)
 
-  // If the user granted YouTube scopes, persist the tokens and trigger an
-  // initial sync. This is the "auto-connect" path: the user signs in with
-  // Google, grants YouTube access once, and their channel data is synced
-  // immediately — they never need to visit a separate "Connect YouTube" page.
-  let ytSynced = false
-  if (user && tokens.accessToken && hasYouTubeScopes(tokens.scope)) {
-    try {
-      await storeYouTubeTokens(user.id, {
-        access_token: tokens.accessToken,
-        refresh_token: tokens.refreshToken,
-        expires_in: tokens.expiresIn ?? 3600,
-        token_type: tokens.tokenType ?? 'Bearer',
-        scope: tokens.scope ?? '',
-      })
-      // Best-effort initial sync. If it fails, the user can use "Sync Now".
-      await syncYouTubeData(user.id)
-      ytSynced = true
-      await db.notification.create({
-        data: {
-          userId: user.id,
-          type: 'system',
-          title: 'YouTube channel connected',
-          message: `Welcome${user.name ? `, ${user.name}` : ''}! Your YouTube account was connected and your channel data has been synced automatically.`,
-          read: false,
-        },
-      }).catch(() => {})
-    } catch (error) {
-    console.error("========== GOOGLE CALLBACK ERROR ==========");
-    console.error(error);
+    if (!stateOk) {
+      home.searchParams.set('auth_error', 'state_mismatch')
+      return NextResponse.redirect(home)
+    }
+
+    console.log('STEP 2 - exchange code')
+
+    const tokens = await exchangeGoogleCode(code)
+
+    if (!tokens || !tokens.userInfo || !tokens.userInfo.email) {
+      home.searchParams.set('auth_error', 'token_exchange_failed')
+      return NextResponse.redirect(home)
+    }
+
+    console.log('STEP 3 - complete login')
+
+    const sessionToken = await completeGoogleLogin(tokens.userInfo)
+
+    console.log('STEP 4 - session token created')
+
+    if (!sessionToken) {
+      home.searchParams.set('auth_error', 'session_failed')
+      return NextResponse.redirect(home)
+    }
+
+    console.log('STEP 5 - lookup user')
+
+    const user = await db.user.findUnique({
+      where: {
+        email: tokens.userInfo.email,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    })
+
+    console.log('STEP 6 - user', user)
+
+    let ytSynced = false
+
+    if (user && tokens.accessToken && hasYouTubeScopes(tokens.scope)) {
+      try {
+        console.log('STEP 7 - store YouTube tokens')
+
+        await storeYouTubeTokens(user.id, {
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+          expires_in: tokens.expiresIn ?? 3600,
+          token_type: tokens.tokenType ?? 'Bearer',
+          scope: tokens.scope ?? '',
+        })
+
+        console.log('STEP 8 - sync channel')
+
+        await syncYouTubeData(user.id)
+
+        console.log('STEP 9 - sync finished')
+
+        ytSynced = true
+
+        await db.notification.create({
+          data: {
+            userId: user.id,
+            type: 'system',
+            title: 'YouTube channel connected',
+            message: `Welcome${
+              user.name ? `, ${user.name}` : ''
+            }! Your YouTube account was connected and your channel data has been synced automatically.`,
+            read: false,
+          },
+        })
+
+        console.log('STEP 10 - notification created')
+      } catch (e) {
+        console.error('========== YOUTUBE SYNC ERROR ==========')
+        console.error(e)
+
+        if (e instanceof Error) {
+          console.error(e.message)
+          console.error(e.stack)
+        }
+      }
+    }
+
+    if (ytSynced) {
+      home.searchParams.set('yt', 'auto_synced')
+    }
+
+    console.log('STEP 11 - create response')
+
+    const res = NextResponse.redirect(home)
+
+    res.cookies.set(SESSION_COOKIE, sessionToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_MAX_AGE,
+      path: '/',
+    })
+
+    res.cookies.set(OAUTH_STATE_COOKIE, '', {
+      ...oAuthStateCookieOptions(),
+      maxAge: 0,
+    })
+
+    console.log('========== GOOGLE CALLBACK SUCCESS ==========')
+
+    return res
+  } catch (error) {
+    console.error('========== GOOGLE CALLBACK FATAL ERROR ==========')
+    console.error(error)
 
     if (error instanceof Error) {
-      console.error(error.message);
-      console.error(error.stack);
+      console.error('MESSAGE:', error.message)
+      console.error('STACK:')
+      console.error(error.stack)
     }
 
     return NextResponse.json(
       {
+        success: false,
         error: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
-    );
+    )
   }
-  }
-
-  // Tell the frontend whether YouTube was auto-connected so it can show a
-  // toast and refresh the dashboard.
-  if (ytSynced) {
-    home.searchParams.set('yt', 'auto_synced')
-  }
-
-  // Set session cookie, clear state cookie, redirect home.
-  const res = NextResponse.redirect(home)
-  res.cookies.set(SESSION_COOKIE, sessionToken, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: SESSION_MAX_AGE,
-    path: '/',
-  })
-  res.cookies.set(OAUTH_STATE_COOKIE, '', { ...oAuthStateCookieOptions(), maxAge: 0 })
-  return res
 }
