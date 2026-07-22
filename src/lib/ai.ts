@@ -1,130 +1,51 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
-import { analyzeChannel } from "@/lib/ai";
+import { GoogleGenAI } from "@google/genai";
 
-function parseJSON(value: string | null | undefined, fallback: unknown = []) {
-  if (!value) return fallback;
+console.log("Has GEMINI_API_KEY:", !!process.env.GEMINI_API_KEY);
 
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
+function getAI() {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is missing!");
+    throw new Error("GEMINI_API_KEY is not set");
   }
+
+  return new GoogleGenAI({
+    apiKey,
+  });
 }
 
-export async function POST(req: NextRequest) {
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+async function runLLM(
+  systemPrompt: string,
+  userMessage: string,
+  json = false
+): Promise<string> {
   try {
-    console.log("========== /api/ai/analyze ==========");
+    const ai = getAI();
 
-    console.log("Checking authentication...");
-    const user = await requireUser();
-    console.log("Authenticated user:", user.id);
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `${systemPrompt}\n\n${userMessage}`,
+      config: json
+        ? {
+            responseMimeType: "application/json",
+          }
+        : undefined,
+    });
 
-    const body = await req.json().catch(() => ({}));
-
-    const channelId = (body.channelId ?? "").toString();
-
-    if (!channelId) {
-      return NextResponse.json(
-        { error: "channelId is required" },
-        { status: 400 }
-      );
+    console.log("Gemini response text:", response.text);
+    if (!response.text) {
+      throw new Error("Gemini returned an empty response");
     }
 
-    console.log("Loading channel...");
-
-    const channel = await db.channel.findFirst({
-      where: {
-        id: channelId,
-        userId: user.id,
-      },
-      include: {
-        videos: {
-          orderBy: {
-            publishedAt: "desc",
-          },
-          take: 8,
-        },
-      },
-    });
-
-    if (!channel) {
-      return NextResponse.json(
-        { error: "Channel not found" },
-        { status: 404 }
-      );
-    }
-
-    console.log("Channel loaded:", channel.title);
-
-    const recentVideos = channel.videos.map((v) => ({
-      title: v.title,
-      viewCount: v.viewCount,
-      likeCount: v.likeCount,
-      commentCount: v.commentCount,
-      publishedAt: v.publishedAt.toISOString(),
-      tags: parseJSON(v.tags, []) as string[],
-      duration: v.duration,
-      isShort: v.isShort,
-    }));
-
-    console.log("Calling Gemini...");
-
-    const analysis = await analyzeChannel({
-      title: channel.title,
-      description: channel.description,
-      subscriberCount: channel.subscriberCount,
-      videoCount: channel.videoCount,
-      viewCount: channel.viewCount,
-      recentVideos,
-    });
-
-    console.log("Gemini returned successfully.");
-
-    const healthScore =
-      typeof analysis.healthScore === "number" &&
-      !Number.isNaN(analysis.healthScore)
-        ? Math.max(0, Math.min(100, Math.round(analysis.healthScore)))
-        : 0;
-
-    console.log("Saving analysis...");
-
-    const stored = await db.aIAnalysis.create({
-      data: {
-        userId: user.id,
-        channelId: channel.id,
-        type: "channel",
-        result: JSON.stringify(analysis),
-        score: healthScore,
-      },
-    });
-
-    console.log("Updating channel...");
-
-    await db.channel.update({
-      where: {
-        id: channel.id,
-      },
-      data: {
-        healthScore,
-      },
-    });
-
-    console.log("Analysis completed successfully.");
-
-    return NextResponse.json({
-      analysis: {
-        id: stored.id,
-        channelId: channel.id,
-        type: "channel",
-        score: healthScore,
-        result: analysis,
-        createdAt: stored.createdAt,
-      },
-    });
+    return response.text;
   } catch (err) {
-    console.error("========== ANALYZE ERROR ==========");
+    console.error("========== GEMINI ERROR ==========");
 
     if (err instanceof Error) {
       console.error("Message:", err.message);
@@ -132,21 +53,366 @@ export async function POST(req: NextRequest) {
     } else {
       console.error(err);
     }
+    throw err;
+  }
+}
 
-    if (err instanceof Error && err.message === "UNAUTHORIZED") {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+async function runJSON<T>(
+  systemPrompt: string,
+  userMessage: string
+): Promise<T> {
+  const content = await runLLM(systemPrompt, userMessage, true);
+
+  let cleaned = content.trim();
+
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned
+      .replace(/^```(?:json)?\n?/, "")
+      .replace(/\n?```$/, "");
+  }
+
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+
+    if (match) {
+      return JSON.parse(match[1]) as T;
     }
 
-    return NextResponse.json(
-      {
-        error: "Failed to analyze channel",
-      },
-      {
-        status: 500,
-      }
-    );
+    console.error("Gemini returned invalid JSON:");
+    console.error(cleaned);
+
+    throw new Error("Failed to parse Gemini JSON response");
   }
+}
+/* =======================================================
+   Channel Analysis
+======================================================= */
+
+export async function analyzeChannel(channelInfo: {
+  title: string;
+  description: string;
+  subscriberCount: number;
+  videoCount: number;
+  viewCount: number;
+  recentVideos: Array<{
+    title: string;
+    viewCount: number;
+    likeCount: number;
+    commentCount: number;
+    publishedAt: string;
+    tags: string[];
+    duration: string;
+    isShort: boolean;
+  }>;
+}) {
+  const system = `
+You are an expert YouTube strategist.
+
+Analyze the channel's performance, audience engagement,
+SEO, upload consistency, audience retention, CTR,
+and growth opportunities.
+
+Return ONLY valid JSON.
+`;
+
+  const user = `
+Analyze this YouTube channel.
+
+Return EXACTLY this JSON schema:
+
+{
+  "healthScore": 0,
+  "summary": "",
+  "strengths": [],
+  "weaknesses": [],
+  "performance": {
+    "rating": "",
+    "note": ""
+  },
+  "engagement": {
+    "rating": "",
+    "avgEngagementRate": "",
+    "note": ""
+  },
+  "consistency": {
+    "rating": "",
+    "uploadFrequency": "",
+    "note": ""
+  },
+  "seo": {
+    "rating": "",
+    "score": 0,
+    "note": ""
+  },
+  "retention": {
+    "trend": "",
+    "note": ""
+  },
+  "ctrOpportunities": []
+}
+
+Channel Data:
+
+${JSON.stringify(channelInfo, null, 2)}
+`;
+
+  const result = await runJSON<{
+    healthScore: number;
+    summary: string;
+    strengths: string[];
+    weaknesses: string[];
+    performance: {
+      rating: string;
+      note: string;
+    };
+    engagement: {
+      rating: string;
+      avgEngagementRate: string;
+      note: string;
+    };
+    consistency: {
+      rating: string;
+      uploadFrequency: string;
+      note: string;
+    };
+    seo: {
+      rating: string;
+      score: number;
+      note: string;
+    };
+    retention: {
+      trend: string;
+      note: string;
+    };
+    ctrOpportunities: string[];
+  }>(system, user);
+
+  return result;
+}
+/* =======================================================
+   Recommendations
+======================================================= */
+
+export async function generateRecommendations(channelInfo: {
+  title: string;
+  niche: string;
+  subscriberCount: number;
+  recentTopics: string[];
+}) {
+  const system = `
+You are a professional YouTube growth strategist.
+
+Your job is to analyze a creator's niche and generate practical,
+SEO-focused recommendations.
+
+Return ONLY valid JSON.
+`;
+
+  const user = `
+Analyze this YouTube channel and return recommendations.
+
+Return EXACTLY this JSON:
+
+{
+  "titles": [],
+  "descriptions": [],
+  "seo": [],
+  "tags": [],
+  "keywords": [],
+  "trending": [],
+  "videoIdeas": [],
+  "playlist": [],
+  "uploadTimes": [],
+  "engagement": [],
+  "growth": [],
+  "calendar": []
+}
+
+Channel:
+
+${JSON.stringify(channelInfo, null, 2)}
+`;
+
+  return runJSON<{
+    titles: string[];
+    descriptions: string[];
+    seo: string[];
+    tags: string[];
+    keywords: string[];
+    trending: string[];
+    videoIdeas: string[];
+    playlist: string[];
+    uploadTimes: string[];
+    engagement: string[];
+    growth: string[];
+    calendar: string[];
+  }>(system, user);
+}
+/* =======================================================
+   Script Generator
+======================================================= */
+
+export async function generateScript(params: {
+  type: string;
+  topic: string;
+  audience: string;
+  tone: string;
+  duration: string;
+  channelName: string;
+  extra?: string;
+}) {
+  const system = `
+You are a professional YouTube script writer.
+
+Write highly engaging, natural sounding scripts that maximize
+viewer retention.
+
+Do not include explanations outside the script.
+`;
+
+  const user = `
+Write a complete YouTube script.
+
+Type:
+${params.type}
+
+Topic:
+${params.topic}
+
+Audience:
+${params.audience}
+
+Tone:
+${params.tone}
+
+Duration:
+${params.duration}
+
+Channel Name:
+${params.channelName}
+
+Additional Instructions:
+${params.extra || "None"}
+
+The script should include:
+
+- Hook
+- Intro
+- Main Content
+- Call To Action
+- Ending
+`;
+
+  return runLLM(system, user);
+}
+/* =======================================================
+   Content Ideas
+======================================================= */
+
+export interface ContentIdea {
+  title: string;
+  hook: string;
+  format: string;
+  why: string;
+  difficulty: string;
+  estimatedViews: string;
+  tags: string[];
+}
+
+export async function generateContentIdeas(params: {
+  niche: string;
+  audience: string;
+  channelName: string;
+  count?: number;
+}) {
+  const count = Math.max(1, Math.min(12, params.count ?? 8));
+
+  const system = `
+You are an expert YouTube content strategist.
+
+Generate viral, SEO-optimized content ideas that fit the
+creator's niche and audience.
+
+Return ONLY valid JSON.
+`;
+
+  const user = `
+Generate ${count} YouTube video ideas.
+
+Return EXACTLY this JSON:
+
+{
+  "ideas": [
+    {
+      "title": "",
+      "hook": "",
+      "format": "",
+      "why": "",
+      "difficulty": "",
+      "estimatedViews": "",
+      "tags": []
+    }
+  ]
+}
+
+Channel Name:
+${params.channelName}
+
+Niche:
+${params.niche}
+
+Audience:
+${params.audience}
+`;
+
+  const result = await runJSON<{
+    ideas: ContentIdea[];
+  }>(system, user);
+
+  return result;
+}
+/* =======================================================
+   AI Chat
+======================================================= */
+
+export async function chatAssistant(
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>,
+  context?: string
+) {
+  const system = `
+You are YouTubeFlow AI.
+
+You are an expert YouTube strategist, SEO specialist,
+content creator, script writer, and YouTube growth consultant.
+
+Your goals are to:
+
+- Help creators grow their channels
+- Give practical advice
+- Explain YouTube analytics
+- Improve titles, thumbnails and SEO
+- Generate engaging content ideas
+- Answer questions clearly and accurately
+
+Keep answers concise unless the user asks for more detail.
+`;
+
+  const conversation = messages
+    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n");
+
+  const user = `
+${context ? `Context:\n${context}\n\n` : ""}
+
+Conversation:
+
+${conversation}
+`;
+
+  return runLLM(system, user);
 }
