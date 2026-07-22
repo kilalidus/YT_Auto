@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { analyzeChannel } from "@/lib/ai";
+import { pusherServer } from "@/lib/pusher-server";
 
 function parseJSON(value: string | null | undefined, fallback: unknown = []) {
   if (!value) return fallback;
@@ -14,6 +15,8 @@ function parseJSON(value: string | null | undefined, fallback: unknown = []) {
 }
 
 export async function POST(req: NextRequest) {
+  let currentChannelId = "";
+
   try {
     console.log("========== /api/ai/analyze ==========");
 
@@ -22,8 +25,8 @@ export async function POST(req: NextRequest) {
     console.log("Authenticated user:", user.id);
 
     const body = await req.json().catch(() => ({}));
-
     const channelId = (body.channelId ?? "").toString();
+    currentChannelId = channelId;
 
     if (!channelId) {
       return NextResponse.json(
@@ -31,6 +34,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Broadcast status: Loading channel
+    await pusherServer.trigger(`channel-${channelId}`, "ai-status", {
+      status: "loading",
+      message: "Loading channel data and recent videos...",
+    });
 
     console.log("Loading channel...");
 
@@ -50,6 +59,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (!channel) {
+      await pusherServer.trigger(`channel-${channelId}`, "ai-status", {
+        status: "error",
+        message: "Channel not found.",
+      });
+
       return NextResponse.json(
         { error: "Channel not found" },
         { status: 404 }
@@ -69,6 +83,12 @@ export async function POST(req: NextRequest) {
       isShort: v.isShort,
     }));
 
+    // Broadcast status: Calling Gemini AI
+    await pusherServer.trigger(`channel-${channelId}`, "ai-status", {
+      status: "analyzing",
+      message: "Analyzing channel performance with Gemini AI...",
+    });
+
     console.log("Calling Gemini...");
 
     const analysis = await analyzeChannel({
@@ -87,6 +107,12 @@ export async function POST(req: NextRequest) {
       !Number.isNaN(analysis.healthScore)
         ? Math.max(0, Math.min(100, Math.round(analysis.healthScore)))
         : 0;
+
+    // Broadcast status: Saving results
+    await pusherServer.trigger(`channel-${channelId}`, "ai-status", {
+      status: "saving",
+      message: "Saving AI analysis results...",
+    });
 
     console.log("Saving analysis...");
 
@@ -113,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     console.log("Analysis completed successfully.");
 
-    return NextResponse.json({
+    const responsePayload = {
       analysis: {
         id: stored.id,
         channelId: channel.id,
@@ -122,7 +148,16 @@ export async function POST(req: NextRequest) {
         result: analysis,
         createdAt: stored.createdAt,
       },
+    };
+
+    // Broadcast status: Complete
+    await pusherServer.trigger(`channel-${channelId}`, "ai-status", {
+      status: "completed",
+      message: "Analysis completed successfully!",
+      data: responsePayload.analysis,
     });
+
+    return NextResponse.json(responsePayload);
   } catch (err) {
     console.error("========== ANALYZE ERROR ==========");
 
@@ -131,6 +166,16 @@ export async function POST(req: NextRequest) {
       console.error("Stack:", err.stack);
     } else {
       console.error(err);
+    }
+
+    if (currentChannelId) {
+      await pusherServer
+        .trigger(`channel-${currentChannelId}`, "ai-status", {
+          status: "error",
+          message:
+            err instanceof Error ? err.message : "Failed to analyze channel",
+        })
+        .catch(() => {});
     }
 
     if (err instanceof Error && err.message === "UNAUTHORIZED") {
