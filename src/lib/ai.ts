@@ -34,18 +34,25 @@ export interface ContentIdea {
  * Executes an LLM call with a primary model and a secondary fallback model
  * to ensure maximum uptime.
  */
+/**
+ * Executes an LLM call with verified Gemini models.
+ */
 async function runLLM(
   systemPrompt: string,
   userMessage: string,
   json = false
 ): Promise<string> {
   const ai = getAI();
-  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
+  
+  // Use verified Gemini model identifiers
+  const modelsToTry = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
 
   let lastError: unknown = null;
 
   for (const model of modelsToTry) {
     try {
+      console.log(`[Gemini] Attempting call with model: ${model}...`);
+
       const response = await ai.models.generateContent({
         model,
         contents: userMessage,
@@ -56,16 +63,20 @@ async function runLLM(
       });
 
       if (response.text) {
+        console.log(`[Gemini] SUCCESS with model: ${model}`);
         return response.text;
       }
-    } catch (err) {
-      console.warn(`[Gemini] Model '${model}' failed. Trying next model...`, err);
+    } catch (err: any) {
+      console.error(`[Gemini Error] Model '${model}' failed:`, err?.message || err);
       lastError = err;
     }
   }
 
-  console.error("========== ALL GEMINI MODELS FAILED ==========", lastError);
-  throw lastError || new Error("Gemini API call failed");
+  // If all models failed, log the failure clearly to Vercel logs
+  console.error("========== GEMINI FAILED ALL MODELS ==========");
+  console.error("Last Error Details:", lastError);
+  
+  throw lastError || new Error("Gemini API failed to return a response.");
 }
 
 /**
