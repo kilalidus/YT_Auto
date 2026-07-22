@@ -4,6 +4,9 @@ import { requireUser } from "@/lib/auth";
 import { generateRecommendations } from "@/lib/ai";
 import { broadcastNotification } from "@/lib/notify-broadcast";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function parseJSON(value: string | null | undefined, fallback: unknown = []) {
   if (!value) return fallback;
   try {
@@ -110,7 +113,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Fan-out to realtime clients (fire-and-forget; safe if mini-service is down)
+    // Fan-out to realtime clients
     broadcastNotification(user.id, {
       id: notif.id,
       type: notif.type,

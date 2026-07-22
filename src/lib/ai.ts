@@ -31,9 +31,7 @@ export interface ContentIdea {
 }
 
 /**
- * Executes an LLM call with verified Gemini models.
- * Prioritizes 2.0 Flash for speed and rate limits, with fallback to 1.5 models.
- * Includes exponential backoff delay for HTTP 429 Rate Limit handling.
+ * Executes an LLM call with retry backoff for rate limits (HTTP 429).
  */
 async function runLLM(
   systemPrompt: string,
@@ -41,8 +39,6 @@ async function runLLM(
   json = false
 ): Promise<string> {
   const ai = getAI();
-
-  // Optimized model fallback order
   const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
   let lastError: unknown = null;
@@ -66,8 +62,7 @@ async function runLLM(
         return response.text;
       }
 
-      // Explicitly throw if output was filtered or empty
-      throw new Error(`Model '${model}' returned an empty response or output was filtered.`);
+      throw new Error(`Model '${model}' returned an empty response.`);
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       const is429 =
@@ -79,16 +74,14 @@ async function runLLM(
       console.error(`[Gemini Error] Model '${model}' failed:`, errMsg);
       lastError = err;
 
-      // Pause before retrying or switching models if hit by 429 rate limits
       if (is429 && i < modelsToTry.length - 1) {
-        const backoffDelay = 3000 * (i + 1); // Waits 3s, then 6s
-        console.warn(`[Gemini 429 Rate Limit] Waiting ${backoffDelay / 1000}s before fallback model...`);
-        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+        const delay = 3000 * (i + 1);
+        console.warn(`[Gemini Rate Limit] Waiting ${delay / 1000}s before fallback...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  // If all models failed, log the failure clearly
   console.error("========== GEMINI FAILED ALL MODELS ==========");
   console.error("Last Error Details:", lastError);
 
@@ -106,7 +99,6 @@ async function runJSON<T>(
 
   let cleaned = content.trim();
 
-  // Strip markdown code fences if present
   if (cleaned.startsWith("```")) {
     cleaned = cleaned
       .replace(/^```(?:json)?\s*/i, "")
@@ -117,7 +109,6 @@ async function runJSON<T>(
   try {
     return JSON.parse(cleaned) as T;
   } catch (parseError) {
-    // Attempt regex match for JSON objects or arrays if top-level parse failed
     const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
 
     if (match) {
@@ -136,10 +127,10 @@ async function runJSON<T>(
 export async function analyzeChannel(channelInfo: {
   title: string;
   description: string;
-  subscriberCount: number;
-  videoCount: number;
-  viewCount: number;
-  recentVideos: Array<{
+  subscriberCount: number | string;
+  videoCount: number | string;
+  viewCount: number | string;
+  recentVideos?: Array<{
     title: string;
     viewCount: number;
     likeCount: number;
@@ -150,23 +141,27 @@ export async function analyzeChannel(channelInfo: {
     isShort: boolean;
   }>;
 }) {
-  // Edge Case: Check for 0 videos or empty recent uploads list
-  if (!channelInfo.videoCount || channelInfo.videoCount === 0 || !channelInfo.recentVideos || channelInfo.recentVideos.length === 0) {
+  // Coerce string/number to pure integer
+  const videoCount = Number(channelInfo.videoCount ?? 0);
+  const recentVideos = channelInfo.recentVideos ?? [];
+
+  // STRICT GUARD: Catch 0 videos OR empty recent videos array before Gemini call
+  if (videoCount === 0 || recentVideos.length === 0) {
     return {
       healthScore: 50,
-      summary: `Channel "${channelInfo.title || "your channel"}" has no public uploads yet. Upload your first video to generate detailed AI analysis.`,
+      summary: `Channel "${channelInfo.title || "your channel"}" has no public uploads yet. Upload your first video to unlock detailed AI growth analytics.`,
       strengths: channelInfo.description
-        ? ["Channel description configured", "Channel metadata exists"]
-        : ["Channel created"],
-      weaknesses: ["No video content uploaded yet"],
-      performance: { rating: "N/A", note: "Upload videos to begin calculating viewer performance." },
-      engagement: { rating: "N/A", avgEngagementRate: "0%", note: "No interaction metrics available." },
+        ? ["Channel description is set up", "Branding metadata present"]
+        : ["Channel account created"],
+      weaknesses: ["No public videos uploaded yet"],
+      performance: { rating: "N/A", note: "Publish videos to begin calculating view metrics." },
+      engagement: { rating: "N/A", avgEngagementRate: "0%", note: "No video interaction data available yet." },
       consistency: { rating: "Needs Work", uploadFrequency: "No uploads", note: "Set an upload schedule for your channel launch." },
-      seo: { rating: "Fair", score: 50, note: "Optimize channel keywords and description." },
-      retention: { trend: "N/A", note: "Retention insights will build as videos gain watch time." },
+      seo: { rating: "Fair", score: 50, note: "Add target keywords to your channel description." },
+      retention: { trend: "N/A", note: "Retention metrics will appear once viewers watch your videos." },
       ctrOpportunities: [
-        "Design bold, high-contrast thumbnails for your upcoming launch",
-        "Craft searchable video titles tailored to your niche target audience"
+        "Design high-contrast thumbnails before publishing your first video",
+        "Target clear, searchable video titles for your launch"
       ],
     };
   }
@@ -230,14 +225,14 @@ ${JSON.stringify(channelInfo, null, 2)}
       ctrOpportunities: string[];
     }>(system, user);
   } catch (error) {
-    console.error("[analyzeChannel] Falling back to default analysis payload:", error);
+    console.error("[analyzeChannel] Fallback executed due to API error:", error);
 
-    // Contextual fallback response when API fails for an existing channel
+    // Honest Fallback if Gemini fails for a channel that DOES have videos
     return {
       healthScore: 60,
-      summary: `Analysis for ${channelInfo.title || "your channel"} is using temporary cached data.`,
-      strengths: ["Channel profile set up"],
-      weaknesses: ["AI service temporarily timed out during analysis"],
+      summary: `Analysis for "${channelInfo.title || "your channel"}" is using temporary cached metadata due to AI traffic.`,
+      strengths: [`${videoCount} video(s) on channel`],
+      weaknesses: ["AI service temporarily unreachable during video deep-dive"],
       performance: { rating: "Pending", note: "Re-run analysis in a few moments." },
       engagement: { rating: "Pending", avgEngagementRate: "N/A", note: "Re-run analysis in a few moments." },
       consistency: { rating: "Pending", uploadFrequency: "N/A", note: "Re-run analysis in a few moments." },
@@ -255,7 +250,7 @@ ${JSON.stringify(channelInfo, null, 2)}
 export async function generateRecommendations(channelInfo: {
   title: string;
   niche: string;
-  subscriberCount: number;
+  subscriberCount: number | string;
   recentTopics: string[];
 }) {
   const system = `

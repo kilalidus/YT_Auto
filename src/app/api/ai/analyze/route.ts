@@ -4,6 +4,9 @@ import { requireUser } from "@/lib/auth";
 import { analyzeChannel } from "@/lib/ai";
 import { pusherServer } from "@/lib/pusher-server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // Safe wrapper to prevent Pusher/WebSocket configuration issues from crashing the API
 async function safePusherTrigger(channelId: string, event: string, data: Record<string, unknown>) {
   try {
