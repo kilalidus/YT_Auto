@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = req.nextUrl
+
     const code = searchParams.get('code')
     const state = searchParams.get('state')
     const err = searchParams.get('error')
@@ -57,41 +58,71 @@ export async function GET(req: NextRequest) {
 
     const tokens = await exchangeGoogleCode(code)
 
-    if (!tokens || !tokens.userInfo || !tokens.userInfo.email) {
+    if (!tokens || !tokens.userInfo?.email) {
       home.searchParams.set('auth_error', 'token_exchange_failed')
       return NextResponse.redirect(home)
     }
 
+    console.log('Google user:', tokens.userInfo.email)
+
     console.log('STEP 3 - complete login')
 
     const sessionToken = await completeGoogleLogin(tokens.userInfo)
-
-    console.log('STEP 4 - session token created')
 
     if (!sessionToken) {
       home.searchParams.set('auth_error', 'session_failed')
       return NextResponse.redirect(home)
     }
 
-    console.log('STEP 5 - lookup user')
+    console.log('Session token created')
 
-    const user = await db.user.findUnique({
-      where: {
-        email: tokens.userInfo.email,
-      },
+    console.log('STEP 4 - verify database')
+
+    const users = await db.user.findMany({
       select: {
         id: true,
-        name: true,
+        email: true,
       },
     })
 
-    console.log('STEP 6 - user', user)
+    console.log('Users in database:', users)
+
+    console.log('STEP 5 - lookup current user')
+
+    let user: {
+      id: string
+      name: string | null
+    } | null = null
+
+    try {
+      user = await db.user.findFirst({
+        where: {
+          email: tokens.userInfo.email,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      })
+
+      console.log('Found user:', user)
+    } catch (e) {
+      console.error('findFirst failed')
+      console.error(e)
+      throw e
+    }
+
+    if (!user) {
+      throw new Error(
+        `User not found after completeGoogleLogin(): ${tokens.userInfo.email}`
+      )
+    }
 
     let ytSynced = false
 
-    if (user && tokens.accessToken && hasYouTubeScopes(tokens.scope)) {
+    if (tokens.accessToken && hasYouTubeScopes(tokens.scope)) {
       try {
-        console.log('STEP 7 - store YouTube tokens')
+        console.log('STEP 6 - store youtube tokens')
 
         await storeYouTubeTokens(user.id, {
           access_token: tokens.accessToken,
@@ -101,13 +132,13 @@ export async function GET(req: NextRequest) {
           scope: tokens.scope ?? '',
         })
 
-        console.log('STEP 8 - sync channel')
+        console.log('STEP 7 - sync youtube')
 
         await syncYouTubeData(user.id)
 
-        console.log('STEP 9 - sync finished')
-
         ytSynced = true
+
+        console.log('STEP 8 - create notification')
 
         await db.notification.create({
           data: {
@@ -121,7 +152,7 @@ export async function GET(req: NextRequest) {
           },
         })
 
-        console.log('STEP 10 - notification created')
+        console.log('Notification created')
       } catch (e) {
         console.error('========== YOUTUBE SYNC ERROR ==========')
         console.error(e)
@@ -137,7 +168,7 @@ export async function GET(req: NextRequest) {
       home.searchParams.set('yt', 'auto_synced')
     }
 
-    console.log('STEP 11 - create response')
+    console.log('STEP 9 - create response')
 
     const res = NextResponse.redirect(home)
 
@@ -158,12 +189,11 @@ export async function GET(req: NextRequest) {
 
     return res
   } catch (error) {
-    console.error('========== GOOGLE CALLBACK FATAL ERROR ==========')
+    console.error('========== GOOGLE CALLBACK ERROR ==========')
     console.error(error)
 
     if (error instanceof Error) {
-      console.error('MESSAGE:', error.message)
-      console.error('STACK:')
+      console.error('Message:', error.message)
       console.error(error.stack)
     }
 
