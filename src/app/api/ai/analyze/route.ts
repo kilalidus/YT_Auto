@@ -4,14 +4,14 @@ import { requireUser } from "@/lib/auth";
 import { analyzeChannel } from "@/lib/ai";
 import { pusherServer } from "@/lib/pusher-server";
 
-// Helper to safely trigger Pusher without throwing if unconfigured on Vercel
+// Safe wrapper to prevent Pusher/WebSocket configuration issues from crashing the API
 async function safePusherTrigger(channelId: string, event: string, data: Record<string, unknown>) {
   try {
     if (process.env.PUSHER_APP_ID && process.env.NEXT_PUBLIC_PUSHER_KEY) {
       await pusherServer.trigger(`channel-${channelId}`, event, data);
     }
   } catch (err) {
-    console.warn("Pusher trigger skipped or failed:", err instanceof Error ? err.message : err);
+    console.warn("[Pusher] Event trigger skipped or failed:", err instanceof Error ? err.message : err);
   }
 }
 
@@ -30,11 +30,11 @@ export async function POST(req: NextRequest) {
   try {
     console.log("========== /api/ai/analyze START ==========");
 
-    // Step 1: Authenticate User
-    console.log("1. Authenticating user...");
+    // 1. Authenticate
+    console.log("Step 1: Authenticating user...");
     const user = await requireUser();
-    if (!user || !user.id) {
-      console.error("Auth failed: User object empty");
+    if (!user?.id) {
+      console.error("Auth failed: Missing user session");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -43,11 +43,8 @@ export async function POST(req: NextRequest) {
     currentChannelId = channelId;
 
     if (!channelId) {
-      console.error("Validation failed: channelId missing");
-      return NextResponse.json(
-        { error: "channelId is required" },
-        { status: 400 }
-      );
+      console.error("Validation failed: channelId is missing");
+      return NextResponse.json({ error: "channelId is required" }, { status: 400 });
     }
 
     await safePusherTrigger(channelId, "ai-status", {
@@ -55,34 +52,26 @@ export async function POST(req: NextRequest) {
       message: "Loading channel data and recent videos...",
     });
 
-    // Step 2: Database Query
-    console.log("2. Querying database for channelId:", channelId);
+    // 2. Fetch Channel Data from Prisma
+    console.log(`Step 2: Fetching channel ${channelId} for user ${user.id}...`);
     const channel = await db.channel.findFirst({
-      where: {
-        id: channelId,
-        userId: user.id,
-      },
+      where: { id: channelId, userId: user.id },
       include: {
         videos: {
-          orderBy: {
-            publishedAt: "desc",
-          },
+          orderBy: { publishedAt: "desc" },
           take: 8,
         },
       },
     });
 
     if (!channel) {
-      console.error("Channel not found in DB for user:", user.id);
+      console.error(`Channel ${channelId} not found for user ${user.id}`);
       await safePusherTrigger(channelId, "ai-status", {
         status: "error",
         message: "Channel not found.",
       });
 
-      return NextResponse.json(
-        { error: "Channel not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Channel not found" }, { status: 404 });
     }
 
     const recentVideos = (channel.videos || []).map((v) => ({
@@ -101,8 +90,8 @@ export async function POST(req: NextRequest) {
       message: "Analyzing channel performance with Gemini AI...",
     });
 
-    // Step 3: Run Gemini AI Analysis
-    console.log("3. Calling analyzeChannel (Gemini)...");
+    // 3. Call Gemini Analysis
+    console.log("Step 3: Executing Gemini AI analysis...");
     const analysis = await analyzeChannel({
       title: channel.title,
       description: channel.description ?? "",
@@ -122,8 +111,8 @@ export async function POST(req: NextRequest) {
       message: "Saving AI analysis results...",
     });
 
-    // Step 4: Persist Results
-    console.log("4. Storing analysis record in DB...");
+    // 4. Save DB Records
+    console.log("Step 4: Persisting analysis results in database...");
     const stored = await db.aIAnalysis.create({
       data: {
         userId: user.id,
@@ -162,7 +151,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("========== ANALYZE ROUTE ERROR ==========");
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("Details:", errorMessage);
+    console.error("Error details:", errorMessage);
 
     if (currentChannelId) {
       await safePusherTrigger(currentChannelId, "ai-status", {
@@ -172,10 +161,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        error: "Failed to analyze channel",
-        details: errorMessage,
-      },
+      { error: "Failed to analyze channel", details: errorMessage },
       { status: 500 }
     );
   }
