@@ -111,8 +111,16 @@ export async function GET(req: NextRequest) {
         },
       }).catch(() => {})
     } catch (e) {
-      console.error('[google/callback] YouTube auto-sync failed', e)
-    }
+    console.error("GOOGLE CALLBACK ERROR")
+    console.error(e)
+
+    return NextResponse.json(
+      {
+        error: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : null,
+      },
+      { status: 500 }
+    )
   }
 
   // Tell the frontend whether YouTube was auto-connected so it can show a
